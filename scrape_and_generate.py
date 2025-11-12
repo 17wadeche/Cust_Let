@@ -4,6 +4,10 @@ from datetime import date
 import yaml
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from docx import Document
+def ts():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+def log(msg):
+    print(f"[{ts()}] {msg}")
 def find_first_visible_input(page, primary_selector, fallbacks=None, timeout=15000):
     fallbacks = fallbacks or []
     selectors = [primary_selector] + fallbacks
@@ -78,6 +82,7 @@ def wait_find_in_any_frame(page, selectors, timeout_ms=30000, poll_ms=300):
     deadline = time.time() + (timeout_ms/1000.0)
     tried = set()
     while time.time() < deadline:
+        log(f"[wait] scanning {len(page.frames)} frames for any of: {selectors}")
         frames = page.frames
         for sel in selectors:
             if sel in tried:
@@ -90,6 +95,7 @@ def wait_find_in_any_frame(page, selectors, timeout_ms=30000, poll_ms=300):
                             loc.wait_for(state="visible", timeout=poll_ms)
                         except Exception:
                             pass
+                        log(f"[wait] found {sel} in frame name={getattr(fr,'name','')} url={getattr(fr,'url','')}")
                         return loc, fr, sel
                 except Exception:
                     continue
@@ -192,6 +198,7 @@ def click_partners_tab(page, frame):
         try:
             loc = frame.locator(sel).first
             if loc.count():
+                log("[nav] Clicking Partners tab")
                 loc.click()
                 clicked = True
                 break
@@ -387,6 +394,7 @@ def click_tab_by_text(page, root_frame, text_or_href_fragment):
             try:
                 loc = fr.locator(sel).first
                 if loc.count():
+                    log(f"[nav] Clicking tab: {text_or_href_fragment}")
                     loc.click()
                     return fr
             except Exception:
@@ -448,6 +456,8 @@ def read_all_products(page, root_frame):
 def _dates_table(frame):
     return frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-DatesTable')]]").first
 def get_event_date(page):
+    click_tab_by_text(page, page.main_frame, "Dates") or \
+    click_tab_by_text(page, page.main_frame, "_ovviewset.do_0003")
     fr = find_frame_with(page, "xpath=//td[starts-with(@id,'GUIDE-DatesTable')]")
     if not fr:
         return ""
@@ -523,6 +533,7 @@ def _expand_if_truncated(frame):
     try:
         link = frame.locator("xpath=//a[contains(@id,'text_table') and contains(@id,'lines')]").first
         if link.count():
+            log("[ui] Expanding truncated text")
             try:
                 link.scroll_into_view_if_needed(timeout=1000)
             except Exception:
@@ -603,6 +614,27 @@ def click_left_nav_product_analysis(page):
             try:
                 loc = fr.locator(sel).first
                 if loc.count():
+                    log("[nav] Opening left nav: Product Analysis")
+                    loc.click()
+                    try:
+                        fr.wait_for_selector("xpath=//a[contains(@class,'GUIDE-sideNav')]", timeout=4000)
+                    except Exception:
+                        pass
+                    return True
+            except Exception:
+                continue
+    return False
+def click_left_nav_investigation(page):
+    candidates = [
+        "xpath=//div[contains(@class,'left-nav')]//div[normalize-space(.)='Investigation']",
+        "xpath=//*[contains(@class,'left-nav')]//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'investigation')]",
+    ]
+    for sel in candidates:
+        for fr in page.frames:
+            try:
+                loc = fr.locator(sel).first
+                if loc.count():
+                    log("[nav] Opening left nav: Investigation")
                     loc.click()
                     try:
                         fr.wait_for_selector("xpath=//a[contains(@class,'GUIDE-sideNav')]", timeout=4000)
@@ -666,6 +698,40 @@ def _find_latest_analysis_table_nearby(page):
         except Exception:
             pass
     return candidates[-1] if candidates else (None, None)
+def read_text_by_labels(page, wanted_labels):
+    fr, tbl = _find_latest_analysis_table_nearby(page)
+    if not (fr and tbl and tbl.count()):
+        return ""
+    _expand_if_truncated(fr)
+    row = None
+    for t in wanted_labels:
+        cand = tbl.locator(
+            "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and normalize-space(.)=$t]]"
+        ).filter(has_text=t).first
+        if cand.count():
+            row = cand
+            break
+    if not row:
+        for t in wanted_labels:
+            low = t.lower()
+            cand = tbl.locator(
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '" + low + "')]]"
+            ).first
+            if cand.count():
+                row = cand
+                break
+    if not row:
+        row = tbl.locator("xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]]").first
+        if not row.count():
+            return ""
+    td = row.locator("xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]").first
+    if not td.count():
+        return ""
+    raw = td.evaluate("el => el.textContent || ''") or ""
+    text = re.sub(r'\\r?\\n\\s*\\r?\\n+', '\\n\\n', raw)
+    text = re.sub(r'[ \\t\\xa0]+', ' ', text)
+    text = re.sub(r'\\s*\\n\\s*', '\\n', text).strip()
+    return text
 def read_analysis_summary_for_current_pli(page):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
@@ -759,6 +825,15 @@ def collect_product_analysis(page, root_frame, known_products):
             if not changed:
                 link["frame"].wait_for_timeout(400)
             txt = read_analysis_summary_for_current_pli(page)
+            log(f"[read] Product Analysis → {link['text']}")
+            txt = read_text_by_labels(page, [
+                "Analysis Summary",
+                "Analysis/Investigation Summary",
+                "Summary of Investigations",
+                "Investigation Summary",
+                "Analysis/Investigation conclusion",
+                "Analysis/Investigation",
+            ])
             if txt:
                 summaries.append(txt)
         results[pid or code] = "\n\n".join(summaries) if summaries else default_msg
@@ -847,6 +922,7 @@ def main():
         browser = p.chromium.launch(headless=cfg.get('headless', False))
         context = browser.new_context()
         page = context.new_page()
+        log(f"Navigating to CRM: {cfg['crm_url']}")
         page.goto(cfg['crm_url'], wait_until="load")
         sso_wait = cfg.get('sso_pause_seconds', 0)
         if sso_wait > 0:
@@ -875,8 +951,19 @@ def main():
                         "xpath=/html/body/form/div[5]/div/table/tbody/tr[1]/td/div/div/div/div/table/tbody/tr/td[1]/div/div/span/table/tbody/tr/td/span[3]/input",
                     ]
                     all_selectors = [s['selector']] + [sel for sel in fallbacks + extra_defaults if sel not in fallbacks]
-                    target, target_ctx, used_sel = wait_find_in_any_frame(page, all_selectors, timeout_ms=s.get('pre_wait_timeout', 30000))
-                    print(f"[Search] Found input via selector: {used_sel} in frame url={getattr(target_ctx, 'url', '')} name={getattr(target_ctx, 'name', '')}")
+                    log("[search] polling every 2s for search input…")
+                    poll_deadline = time.time() + s.get('pre_wait_timeout', 30000)/1000.0
+                    target = target_ctx = used_sel = None
+                    while time.time() < poll_deadline:
+                        try:
+                            target, target_ctx, used_sel = wait_find_in_any_frame(page, all_selectors, timeout_ms=1, poll_ms=1)
+                            break
+                        except Exception:
+                            log("[search] not visible yet; sleeping 2s")
+                            time.sleep(2)
+                    if not target:
+                        target, target_ctx, used_sel = wait_find_in_any_frame(page, all_selectors, timeout_ms=5000)
+                    log(f"[search] Found input via selector: {used_sel} in frame url={getattr(target_ctx, 'url', '')} name={getattr(target_ctx, 'name', '')}")
                     if s.get('clear', True):
                         try:
                             target.fill("")
@@ -885,6 +972,7 @@ def main():
                     target.click()
                     frame.wait_for_timeout(100)
                     try:
+                        log(f"[search] filling complaint id: {complaint_id}")
                         target.fill(complaint_id)
                     except:
                         target.type(complaint_id, delay=30)
@@ -896,25 +984,31 @@ def main():
                         try:
                             btn = target_ctx.locator(s['submit_selector']).first
                             if btn.count():
+                                log("[search] clicking submit")
                                 btn.click()
                                 submitted = True
                         except Exception:
                             pass
                     if not submitted:
                         key = s.get('press_key', 'Enter')
-                        try: target.press(key)
+                        try:
+                            log(f"[search] pressing key: {key}")
+                            target.press(key)
                         except Exception: pass
                     if s.get('wait_for'):
+                        log(f"[wait] waiting for results: {s['wait_for']}")
                         target_ctx.wait_for_selector(s['wait_for'], timeout=s.get('wait_timeout', 60000))
                     else:
                         target_ctx.wait_for_load_state("networkidle")
                         target_ctx.wait_for_timeout(s.get('post_wait_ms', 3000))
                 except Exception as e:
+                    log(f"[ERROR] Search failed: {e}")
                     print(f"[Search] Failed to drive search: {e}")
                     dump_frames_debug(page, basename='debug')
                     try:
                         page.screenshot(path="debug_search_failure.png", full_page=True)
                         print("Saved debug_search_failure.png")
+                        log("Saved debug_search_failure.png")
                     except Exception:
                         pass
         values = {}
@@ -941,11 +1035,13 @@ def main():
         for k, v in cfg.get('defaults', {}).items():
             values.setdefault(k, v)
         try:
+            log("[step 1] Partners tab → IR name & facility")
             if click_partners_tab(page, frame):
                 pframe = find_partners_frame(page)
                 if not pframe:
                     debug_frames_for_partners(page)
                     print("[Partners] Could not locate the partners frame.")
+                    log("[Partners] Could not locate the partners frame.")
                 else:
                     _debug_list_pf_from_correct_table(pframe)
                     irname = get_initial_reporter_name(pframe)
@@ -956,26 +1052,38 @@ def main():
                         values['ir_with_address'] = facility_block
                     print("[Partners] ir_name =", values.get('ir_name', ''))
                     print("[Partners] ir_with_address =", values.get('ir_with_address', ''))
-                    
+                    log(f"[Partners] ir_name = {values.get('ir_name','')}")
+                    log(f"[Partners] ir_with_address = {values.get('ir_with_address','')}")
             else:
                 print("[Partners] Could not open Partners tab; leaving ir_* fields from label map/fallbacks.")
+                log("[Partners] Could not open Partners tab; leaving ir_* fields from label map/fallbacks.")
         except Exception as e:
             print(f"[Partners] Error scraping Partners tab: {e}")
-        event_date_text = get_event_date(page)
-        if event_date_text:
-            values['event_date'] = event_date_text
-        desc = read_event_description(page, frame)   # this opens Text Info tab
-        if not desc:                                 # if first try races, wait and try again once
-            wait_for_textinfo_change(page, timeout=8000)
-            desc = read_event_description(page, frame)
-        if desc:
-            values["event_description"] = desc
+            log(f"[ERROR] Partners scrape: {e}")
+        log("[step 2] Additional External References → rb_reference & report_number")
         ext = read_external_refs(page, frame)
         if ext.get("rb_reference"):
             values["rb_reference"] = ext["rb_reference"]
         if ext.get("report_number"):
             values["report_number"] = ext["report_number"]
+        log(f"[AER] rb_reference={values.get('rb_reference','')}, report_number={values.get('report_number','')}")
+        log("[step 3] Dates tab → event_date")
+        event_date_text = get_event_date(page)
+        if event_date_text:
+            values['event_date'] = event_date_text
+        log(f"[Dates] event_date={values.get('event_date','')}")
+        log("[step 4] Product Line Items → all rows")
         products = read_all_products(page, frame)
+        log(f"[PLI] rows detected: {len(products)}")
+        log("[step 5] Text Info → event_description")
+        prev_sig = _textinfo_signature(page)
+        desc = read_event_description(page, frame)
+        if not desc and wait_for_textinfo_change(page, prev_sig, timeout=8000):
+            desc = read_event_description(page, frame)
+        if desc:
+            values["event_description"] = desc
+        log(f"[Text] description length: {len(values.get('event_description',''))}")
+        log("[step 6] Product Analysis side panel → Analysis Summary per product")
         analysis_by_pid = collect_product_analysis(page, frame, products)
         for idx, p in enumerate(products[:3], start=1):
             pid = (p.get("id") or "").strip()
@@ -995,12 +1103,30 @@ def main():
         if len(products) > 3:
             extras = [f"{p['id']} — {p['desc']}" for p in products[3:]]
             values.setdefault("product_extras", "\n".join(extras))
-        print("Collected fields:")
-        print(json.dumps(values, indent=2))
+        log("[step 7] Investigation side panel → Summary of Investigations per item")
+        if click_left_nav_investigation(page):
+            inv_items = list_pli_side_nav_items(page)
+            inv_lines = []
+            for it in inv_items:
+                if not robust_click(it["el"], it["frame"]):
+                    continue
+                text = read_text_by_labels(page, [
+                    "Summary of Investigations",
+                    "Investigation Summary",
+                    "Analysis/Investigation Summary"
+                ])
+                if text:
+                    inv_lines.append(f"{it['text']} — {text}")
+            if inv_lines:
+                values.setdefault("investigation_summary", "\n\n".join(inv_lines))
+        else:
+            log("[Investigation] Left nav not found; skipping.")
+        log("Collected fields:")
+        log(json.dumps(values, indent=2))    
         out_name = cfg.get('output_name_pattern', 'Customer_Letter_{complaint_id}.docx').format(**values)
         out_path = out_dir / out_name
         fill_docx(str(template_path), str(out_path), values)
-        print(f"Generated: {out_path}")
+        log(f"Generated: {out_path}")
         #browser.close()
 if __name__ == "__main__":
     main()
