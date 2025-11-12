@@ -101,15 +101,23 @@ def wait_find_in_any_frame(page, selectors, timeout_ms=30000, poll_ms=600):
                     continue
         time.sleep(poll_ms/1000.0)
     raise PWTimeout(f"Could not find element in any frame for selectors: {selectors}")
+import re
+from docx import Document
+
+# --- helpers to normalize keys and build the mapping you already have ---
 def _norm_key(s: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', (s or '').strip().lower()).strip('_')
+
+_PLACEHOLDER_ANY = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I)
+
 def _build_alias_mapping(mapping: dict) -> dict:
     out = {}
     for k, v in mapping.items():
         nk = _norm_key(k)
         out[nk] = v
         if nk.endswith('_1'):
-            out[nk[:-2]] = v
+            out[nk[:-2]] = v  # allow un-numbered alias for row 1
+    # Friendly aliases from the template screenshots
     aliases = {
         'today_date': out.get('todays_date', ''),
         'ir_name': out.get('ir_name', ''),
@@ -118,6 +126,7 @@ def _build_alias_mapping(mapping: dict) -> dict:
         'event_description': out.get('event_description', ''),
         'analysis_results_if_present': out.get('analysis_results', ''),
         'investigation_summary': out.get('investigation_summary', ''),
+        # Un-numbered product row → first row
         'product_id': out.get('product_id_1', ''),
         'product_desc': out.get('product_desc_1', ''),
         'lot_serial_number': out.get('serial_or_lot_1', ''),
@@ -126,24 +135,52 @@ def _build_alias_mapping(mapping: dict) -> dict:
     }
     out.update({k: v for k, v in aliases.items() if v})
     return out
-_PLACEHOLDER_RE = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])')
-def _replace_in_text(text: str, resolved_map: dict) -> str:
-    def repl(m):
-        key = _norm_key(m.group(2))
-        return resolved_map.get(key, '')
-    return _PLACEHOLDER_RE.sub(repl, text)
-def replace_everywhere(doc, mapping):
+def _split_tolerant(label: str) -> str:
+    label = re.sub(r'\s+', ' ', label.strip())
+    parts = []
+    gap = r'(?:\s*<\/w:t>\s*<\/w:r>\s*<w:r[^>]*>\s*<w:t[^>]*>\s*)?'
+    for ch in label:
+        if ch == ' ':
+            parts.append(r'\s+')
+        else:
+            parts.append(re.escape(ch))
+        parts.append(gap)
+    return ''.join(parts)
+def _patterns_for_key(human_label: str):
+    inner = _split_tolerant(human_label)
+    p1 = re.compile(rf'\[\[\s*{inner}\s*\]\]', re.I)
+    p2 = re.compile(rf'\[\[\s*{inner}\s*\]\]', re.I)
+    return p1, p2
+def _xml_replace_all(xml: str, mapping: dict) -> str:
+    def _quick(m):
+        return mapping.get(_norm_key(m.group(2)), '')
+    xml = _PLACEHOLDER_ANY.sub(lambda m: _quick(m), xml)
+    keys_seen = set()
+    for raw_key, value in mapping.items():
+        if not value:
+            continue
+        humanish = raw_key.replace('_', ' ').strip()
+        for label in {raw_key, humanish}:
+            if label in keys_seen: 
+                continue
+            keys_seen.add(label)
+            for pat in _patterns_for_key(label):
+                xml = pat.sub(value, xml)
+    return xml
+def replace_everywhere(doc: Document, mapping: dict):
     resolved = _build_alias_mapping(mapping)
-    for p in doc.paragraphs:
-        new_text = _replace_in_text(p.text, resolved)
-        if new_text != p.text:
-            p.text = new_text
-    for t in doc.tables:
-        for row in t.rows:
-            for cell in row.cells:
-                new_text = _replace_in_text(cell.text, resolved)
-                if new_text != cell.text:
-                    cell.text = new_text
+    pkg = doc.part.package
+    for part in pkg.parts:   # includes document.xml, headers, footers, footnotes, etc.
+        ct = getattr(part, 'content_type', '')
+        if not ct or 'xml' not in ct:
+            continue
+        try:
+            xml = part.blob.decode('utf-8')
+        except Exception:
+            continue
+        new_xml = _xml_replace_all(xml, resolved)
+        if new_xml != xml:
+            part._blob = new_xml.encode('utf-8')
 def fill_docx(template_path, out_path, mapping):
     doc = Document(template_path)
     replace_everywhere(doc, mapping)
@@ -872,82 +909,74 @@ def read_text_by_labels(page, wanted_labels):
     row = None
     for t in wanted_labels:
         cand = tbl.locator(
-            "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and normalize-space(.)=$t]]"
+            "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') "
+            "and contains(@id,'-TextType') and normalize-space(.)=$t]]"
         ).filter(has_text=t).first
         if cand.count():
-            row = cand
-            break
+            row = cand; break
     if not row:
         for t in wanted_labels:
             low = t.lower()
             cand = tbl.locator(
-                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') "
-                f"and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') "
+                "and contains(@id,'-TextType') and "
+                f"contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
             ).first
             if cand.count():
-                row = cand
-                break
+                row = cand; break
     if not row:
         row = tbl.locator("xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]]").first
         if not row.count():
             return ""
-    td = row.locator("xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]").first
-    if not td.count():
-        return ""
-    _suppress_clicks_enable(fr)
-    try:
+    td = row.locator(
+        "xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') "
+        "and contains(@id,'-Text') and not(contains(@id,'-TextType'))]"
+    ).first
+    if td.count():
+        a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
+        if a.count():
+            full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
+            if full:
+                return _normalize_text(full)
         txt = _safe_td_text(td)
-    finally:
-        _suppress_clicks_disable(fr)
-    return txt
+        if txt:
+            return txt
+    detail_candidates = fr.locator(
+        "xpath=("
+        "//textarea[contains(@id,'-Text') and (@readonly or @disabled)] | "
+        "//*[@role='textbox' and (not(@contenteditable) or @contenteditable='false')] | "
+        "//div[contains(@class,'th-wysi') or contains(@class,'th-txt')][not(@contenteditable) or @contenteditable='false'] | "
+        "//div[contains(@class,'text-value') or contains(@class,'TextValue')]"
+        ")"
+    )
+    if detail_candidates.count():
+        try:
+            return _normalize_text(detail_candidates.first.inner_text())
+        except Exception:
+            try:
+                return _normalize_text(detail_candidates.first.evaluate("n => n.textContent || ''"))
+            except Exception:
+                pass
+    lab = fr.locator("xpath=//*[normalize-space(.)='Text' or contains(normalize-space(.),'Text')]/following::*[1]").first
+    if lab.count():
+        try:
+            return _normalize_text(lab.inner_text())
+        except Exception:
+            try:
+                return _normalize_text(lab.evaluate("n => n.textContent || ''"))
+            except Exception:
+                pass
+    return ""
 def read_analysis_summary_for_current_pli(page):
-    fr, tbl = _find_latest_analysis_table_nearby(page)
-    if not (fr and tbl and tbl.count()):
-        return ""
-    _expand_if_truncated_strong(fr)
-    wanted = [
-        "Summary of Investigations",
-        "Analysis/Investigation Summary",
+    labels = [
         "Analysis Summary",
+        "Analysis/Investigation Summary",
+        "Summary of Investigations",
         "Investigation Summary",
         "Analysis/Investigation conclusion",
         "Analysis/Investigation",
     ]
-    row = None
-    for t in wanted:
-        r = tbl.locator(
-            "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and normalize-space(.)=$t]]"
-        ).filter(has_text=t).first
-        if r.count():
-            row = r; break
-    if not row:
-        for t in wanted:
-            low = t.lower()
-            r = tbl.locator(
-                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and "
-                f"contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
-            ).first
-            if r.count():
-                row = r; break
-    if not row:
-        row = tbl.locator("xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]]").first
-        if not row.count():
-            return ""
-    td = row.locator("xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]").first
-    if not td.count():
-        return ""
-    try:
-        full = td.evaluate("""
-            (node) => {
-              const a = node.querySelector("a[id*='text_table'][id*='lines']");
-              if (a) return a.getAttribute('title') || a.getAttribute('aria-label') || '';
-              return '';
-            }
-        """) or ""
-    except Exception:
-        full = ""
-    text = full.strip() if full.strip() else _safe_td_text(td)
-    return text
+    return (read_text_by_labels(page, labels) or "").strip()
 def wait_for_search_with_retries(page, s, *, max_attempts=8, probe_period_ms=2000,
                                  reload_between_attempts=True, total_timeout_ms=240000):
     start = time.time()
@@ -1000,7 +1029,21 @@ def get_pa_code_to_id(page):
         return mapping
     log(f"[PA] detected {len(items)} anchors in Product Analysis section")
     return {(it["code"] or "").upper(): (it["data_id"] or "") for it in items if it["code"] and it["data_id"]}
+def summary_has_product_id(text: str, product_id: str) -> bool:
+    if not text or not product_id:
+        return False
+    pid = str(product_id).strip()
+    return re.search(rf"\b{re.escape(pid)}\b", text, re.IGNORECASE) is not None
 def collect_product_analysis(page, root_frame, known_products):
+    id_by_code = {}
+    wanted_codes = set()
+    for p in known_products:
+        code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
+        if code:
+            wanted_codes.add(code)
+            pid = (p.get("id") or "").strip()
+            if pid:
+                id_by_code[code] = pid
     nav_clicked = click_left_nav_product_analysis(page)
     if not nav_clicked:
         default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
@@ -1019,6 +1062,7 @@ def collect_product_analysis(page, root_frame, known_products):
             nav_items = _scan_pa_anywhere(page, "Product Analysis")
             items = [{"i": i, "text": txt, "code": extract_product_code(txt), "data_id": did, "el": a, "frame": fr}
                      for i, (fr, a, txt, did) in enumerate(nav_items)]
+    items = [it for it in items if (it.get("code","").upper() in wanted_codes)]
     log("[PA] anchors (Product Analysis only): " + "; ".join([repr(it["text"]) for it in items[:10]]))
     summaries_by_text = {}
     for it in items:
@@ -1033,7 +1077,7 @@ def collect_product_analysis(page, root_frame, known_products):
         content_fr = _content_frame(page)
         prev_sig = _textinfo_signature(page)
         if not robust_click_plus(target, it.get("frame") or nav_fr or page.main_frame):
-            log(f"[PA] click failed for: {it['text']!r} data_id={it['data_id']}")
+            log(f"[PA] click failed for: {it['text']!r} data_id={it.get('data_id','')}")
             continue
         changed = wait_for_textinfo_change(page, prev_sig, timeout=10000)
         if not changed:
@@ -1049,6 +1093,10 @@ def collect_product_analysis(page, root_frame, known_products):
         if not changed:
             content_fr.wait_for_timeout(350)
         txt = read_analysis_summary_for_current_pli(page).strip()
+        expected_pid = id_by_code.get((it.get("code") or "").upper(), "")
+        if txt and expected_pid and not summary_has_product_id(txt, expected_pid):
+            log(f"[PA] discard summary for {it['text']!r}: missing product id {expected_pid}")
+            txt = ""
         log(f"[PA] read summary for {it['text']!r}: {('len='+str(len(txt)) if txt else 'EMPTY')}")
         if txt:
             summaries_by_text[it["text"]] = txt
@@ -1061,14 +1109,8 @@ def collect_product_analysis(page, root_frame, known_products):
         if code:
             for t, s in summaries_by_text.items():
                 if code == (extract_product_code(t) or "").upper():
-                    best = s; break
-        if not best:
-            tokens = [pid, code] + re.findall(r'[A-Z0-9_]+', p.get("desc","").upper())
-            tokens = [t for t in tokens if t]
-            for t, s in summaries_by_text.items():
-                up = t.upper()
-                if any(tok and tok in up for tok in tokens):
-                    best = s; break
+                    best = s
+                    break
         key = code or pid or p.get("desc","")
         results[key] = best or default_msg
     return results
@@ -1467,7 +1509,7 @@ def main():
         for idx, p in enumerate(products[:3], start=1):
             pid = (p.get("id") or "").strip()
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
-            values[f"product_id_{idx}"]    = pa_ids.get(code, "")
+            values[f"product_id_{idx}"]    = (p.get("id") or pa_ids.get(code, "") or code)
             values[f"product_desc_{idx}"]  = p.get("desc","")
             values[f"product_sn_{idx}"]    = p.get("sn","")
             values[f"product_lot_{idx}"]   = p.get("lot","")
