@@ -657,16 +657,14 @@ def _find_frame_with_selector(page, sel):
             pass
     return None
 def _textinfo_signature(page):
-    fr, tbl = _find_latest_analysis_table_nearby(page)  # or _find_latest_text_table for Text Info
+    fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
         return ""
     try:
-        return tbl.evaluate("t => (t.innerText || '').slice(0, 300)")
+        s = tbl.evaluate("t => (t.innerText || '').slice(0, 800)")
     except Exception:
-        try:
-            return tbl.inner_text()[:300]
-        except Exception:
-            return ""
+        s = tbl.inner_text()[:800] if tbl.count() else ""
+    return s
 def wait_for_textinfo_change(page, previous_sig, timeout=10000):
     start = time.time()
     while time.time() - start < (timeout/1000.0):
@@ -699,16 +697,65 @@ def _section_anchor_xpath(section: str) -> str:
         "/following-sibling::div[contains(@class,'data-wrapper')][1]"
         "//a[contains(@class,'GUIDE-sideNav')]"
     )
+def _product_analysis_anchor_locator(fr):
+    return fr.locator(
+        "xpath=//div[contains(@class,'left-nav')]"
+        "//div[contains(@class,'ProductAnalysis')]/following-sibling::div[contains(@class,'clicker')][1]"
+        "/following-sibling::div[contains(@class,'data-wrapper')][1]"
+        "//a[contains(@class,'GUIDE-sideNav')]"
+    )
+def _enumerate_pa_items(fr):
+    anchors = _product_analysis_anchor_locator(fr)
+    n = anchors.count()
+    items = []
+    for i in range(n):
+        a = anchors.nth(i)
+        txt = (a.inner_text().strip() or (a.get_attribute("title") or "").strip())
+        code = extract_product_code(txt)
+        did  = a.get_attribute("data-trans-id") or ""  # stable attribute from your screenshot
+        items.append({"i": i, "text": txt, "code": code, "data_id": did})
+    return items
+def _ensure_section_expanded(page, section: str):
+    fr = _find_leftnav_frame(page)
+    if not fr:
+        return
+    header_map = {
+        "Product Analysis":   "Product Analysis",
+        "Investigations":     "Investigation",
+        "Product Line Items": "Product Line Items",
+    }
+    label = header_map.get(section, section)
+    header = fr.locator(
+        "xpath=//div[contains(@class,'left-nav')]/*[contains(@class,'left')]/div"
+        f"[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{label.lower()}')]"
+    ).first
+    if not header.count():
+        return
+    anchors = fr.locator(_section_anchor_xpath(section))
+    if anchors.count() == 0:
+        try:
+            clicker = header.locator("xpath=following-sibling::div[contains(@class,'clicker')][1]").first
+            if clicker.count():
+                robust_click(clicker, fr)
+                fr.wait_for_timeout(150)
+        except Exception:
+            pass
 def list_side_nav_items(page, section: str):
     fr = _find_leftnav_frame(page)
     if not fr:
         return []
+    _ensure_section_expanded(page, section)
     anchors = fr.locator(_section_anchor_xpath(section))
     n = anchors.count()
     out = []
     for i in range(n):
         el = anchors.nth(i)
-        t = clean(el.inner_text())
+        try:
+            t = clean(el.inner_text())
+            if not t:
+                t = (el.get_attribute("title") or "").strip()
+        except Exception:
+            t = (el.get_attribute("title") or "").strip()
         code = extract_product_code(t)
         out.append({"text": t, "code": code, "el": el, "frame": fr})
     return out
@@ -764,107 +811,110 @@ def read_analysis_summary_for_current_pli(page):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
         return ""
-    _expand_if_truncated(fr)
+    _expand_if_truncated_strong(fr)
     wanted = [
-        "Summary of Investigations",           # seen in your run
+        "Summary of Investigations",
         "Analysis/Investigation Summary",
         "Analysis Summary",
         "Investigation Summary",
         "Analysis/Investigation conclusion",
-        "Analysis/Investigation"
+        "Analysis/Investigation",
     ]
     row = None
     for t in wanted:
-        cand = tbl.locator(
+        r = tbl.locator(
             "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and normalize-space(.)=$t]]"
         ).filter(has_text=t).first
-        if cand.count():
-            row = cand
-            break
-    if not row or not row.count():
+        if r.count():
+            row = r; break
+    if not row:
         for t in wanted:
             low = t.lower()
-            cand = tbl.locator(
-                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') "
-                f"and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
+            r = tbl.locator(
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and "
+                f"contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
             ).first
-            if cand.count():
-                row = cand
-                break
-    if not row or not row.count():
+            if r.count():
+                row = r; break
+    if not row:
         row = tbl.locator("xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]]").first
         if not row.count():
             return ""
     td = row.locator("xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]").first
     if not td.count():
         return ""
-    raw = td.evaluate("el => el.textContent || ''")
-    text = re.sub(r'\r?\n\s*\r?\n+', '\n\n', raw)
-    text = re.sub(r'[ \t\xa0]+', ' ', text)
-    text = re.sub(r'\s*\n\s*', '\n', text).strip()
+    try:
+        full = td.evaluate("""
+            (node) => {
+              const a = node.querySelector("a[id*='text_table'][id*='lines']");
+              if (a) return a.getAttribute('title') || a.getAttribute('aria-label') || '';
+              return '';
+            }
+        """) or ""
+    except Exception:
+        full = ""
+    text = full.strip() if full.strip() else _safe_td_text(td)
     return text
 def collect_product_analysis(page, root_frame, known_products):
-    had_click = click_left_nav_product_analysis(page)
+    if not click_left_nav_product_analysis(page):
+        default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
+        return {(p.get("id") or p.get("code") or "").strip(): default_msg
+                for p in known_products if (p.get("id") or p.get("code"))}
+    nav_fr = _find_leftnav_frame(page)
+    if not nav_fr:
+        return {}
+    _ensure_section_expanded(page, "Product Analysis")
+    items = _enumerate_pa_items(nav_fr)
+    summaries_by_text = {}
+    for idx, it in enumerate(items):
+        _ensure_section_expanded(page, "Product Analysis")
+        anchors = _product_analysis_anchor_locator(nav_fr)
+        target = None
+        if it["data_id"]:
+            target = anchors.filter(has=nav_fr.locator(f"[data-trans-id='{it['data_id']}']")).first
+            if not target.count():
+                target = anchors.nth(it["i"])
+        else:
+            target = anchors.nth(it["i"])
+        if not target or not target.count():
+            continue
+        prev_sig = _textinfo_signature(page)
+        robust_click(target, nav_fr)
+        changed = False
+        try:
+            nav_fr.wait_for_selector(
+                "xpath=//div[contains(@class,'th-clr-cnt-bottom')]"
+                "//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]",
+                timeout=6000
+            )
+            changed = True
+        except Exception:
+            pass
+        if not changed:
+            changed = wait_for_textinfo_change(page, prev_sig, timeout=9000)
+        if not changed:
+            nav_fr.wait_for_timeout(300)
+        txt = read_analysis_summary_for_current_pli(page).strip()
+        if txt:
+            summaries_by_text[it["text"]] = txt
     default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
-    if not had_click:
-        return { (p.get("id") or p.get("code") or "").strip(): default_msg
-                 for p in known_products if (p.get("id") or p.get("code")) }
-    items = list_side_nav_items(page, "Product Analysis")
-    from collections import defaultdict
-    by_code = defaultdict(list)
-    for it in items:
-        by_code[it["code"]].append(it)
     results = {}
     for p in known_products:
         pid  = (p.get("id") or "").strip()
         code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
-        key  = code or pid
-        if not key:
-            continue
-        candidates = []
-        if code and code in by_code:
-            candidates = by_code[code]
-        else:
-            tokens = [code] + re.findall(r'[A-Z0-9_]+', p.get("desc","").upper())
-            for it in items:
-                if any(tok and tok in it["text"].upper() for tok in tokens):
-                    candidates.append(it)
-        if not candidates:
-            results[pid or code] = default_msg
-            continue
-        summaries = []
-        for link in candidates:
-            prev_sig = _textinfo_signature(page)
-            if not robust_click(link["el"], link["frame"]):
-                continue
-            changed = False
-            try:
-                link["frame"].wait_for_selector(
-                    "xpath=//div[contains(@class,'th-clr-cnt-bottom')]//td[starts-with(@id,'GUIDE-TextInfoTable-') "
-                    "and contains(@id,'-TextType') and "
-                    "(contains(.,'Summary of Investigations') or contains(.,'Analysis') or contains(.,'Investigation'))]",
-                    timeout=6000
-                )
-                changed = True
-            except Exception:
-                pass
-            if not changed:
-                changed = wait_for_textinfo_change(page, prev_sig, timeout=8000)
-            if not changed:
-                link["frame"].wait_for_timeout(400)
-            txt = read_analysis_summary_for_current_pli(page)
-            log(f"[read] Product Analysis → {link['text']}")
-            txt = read_text_by_labels(page, [
-                "Analysis Summary",
-                "Analysis/Investigation Summary",
-                "Summary of Investigations",
-                "Investigation Summary",
-                "Analysis/Investigation conclusion",
-                "Analysis/Investigation",
-            ])
-            if txt:
-                summaries.append(txt)
-        results[pid or code] = "\n\n".join(summaries) if summaries else default_msg
+        best = ""
+        if code:
+            for t, s in summaries_by_text.items():
+                if code in (extract_product_code(t) or "").upper():
+                    best = s; break
+        if not best:
+            tokens = [pid, code] + re.findall(r'[A-Z0-9_]+', p.get("desc","").upper())
+            tokens = [t for t in tokens if t]
+            for t, s in summaries_by_text.items():
+                up = t.upper()
+                if any(tok and tok in up for tok in tokens):
+                    best = s; break
+        results[pid or code or p.get("desc","")] = best or default_msg
     return results
 def robust_click(el, frame, timeout_ms=8000):
     try:
