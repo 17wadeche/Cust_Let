@@ -4,6 +4,10 @@ headless: false              # give yourself time to login/SSO if needed
 header_frame_name_regex: "HeaderFrame"
 content_frame_name_regex: "WorkAreaFrame1"
 sso_pause_seconds: 30
+sso_max_attempts: 10
+sso_probe_period_ms: 3000
+sso_reload_between_attempts: true
+sso_total_timeout_ms: 300000
 search:
   selector: "xpath=//input[contains(@id,'SearchValue')]"
   fallback_selectors:
