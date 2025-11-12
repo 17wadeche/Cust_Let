@@ -4,6 +4,7 @@ from datetime import date
 import yaml
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from docx import Document
+from datetime import datetime
 def ts():
     return time.strftime("%Y-%m-%d %H:%M:%S")
 def log(msg):
@@ -142,9 +143,13 @@ def _split_tolerant(label: str) -> str:
         parts.append(gap)
     return ''.join(parts)
 def _patterns_for_key(human_label: str):
-    inner = _split_tolerant(human_label)
-    square = re.compile(r'\[\[\s*' + inner + r'\s*\]\]', re.I)
-    curly  = re.compile(r'\{\{\s*' + inner + r'\s*\}\}', re.I)
+    gap = (
+        r'(?:\s*</w:t>\s*</w:r>\s*'
+        r'<w:r[^>]*>\s*(?:<w:rPr>.*?</w:rPr>\s*)?<w:t[^>]*>\s*)?'
+    )
+    inner = _split_tolerant(human_label)  
+    square = re.compile(r'\[\[\s*' + gap + inner + r'\s*' + gap + r'\]\]', re.I)
+    curly  = re.compile(r'\{\{\s*' + gap + inner + r'\s*' + gap + r'\}\}', re.I)
     return square, curly
 def _xml_replace_all(xml: str, mapping: dict) -> str:
     def _quick(m):
@@ -2188,7 +2193,7 @@ def main():
                         pass
         values = {}
         if not values.get("todays_date"):
-            values["todays_date"] = date.today().isoformat()
+            values["todays_date"] = datetime.now().strftime("%B %d, %Y").replace(" 0", " ")
         values['complaint_id'] = complaint_id
         for key, conf in cfg.get('field_map', {}).items():
             if isinstance(conf, str):
