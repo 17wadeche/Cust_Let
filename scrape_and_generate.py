@@ -133,18 +133,18 @@ def _build_alias_mapping(mapping: dict) -> dict:
 def _split_tolerant(label: str) -> str:
     label = re.sub(r'\s+', ' ', label.strip())
     parts = []
-    gap = r'(?:\s*<\/w:t>\s*<\/w:r>\s*<w:r[^>]*>\s*<w:t[^>]*>\s*)?'
+    gap = (
+        r'(?:\s*</w:t>\s*</w:r>\s*'
+        r'<w:r[^>]*>\s*(?:<w:rPr>.*?</w:rPr>\s*)?<w:t[^>]*>\s*)?'
+    )
     for ch in label:
-        if ch == ' ':
-            parts.append(r'\s+')
-        else:
-            parts.append(re.escape(ch))
+        parts.append(r'\s+' if ch == ' ' else re.escape(ch))
         parts.append(gap)
     return ''.join(parts)
 def _patterns_for_key(human_label: str):
     inner = _split_tolerant(human_label)
-    square = re.compile(rf'\[\[\s*{inner}\s*\]\]', re.I)
-    curly  = re.compile(rf'{{\s*{inner}\s*}}', re.I)
+    square = re.compile(r'\[\[\s*' + inner + r'\s*\]\]', re.I)
+    curly  = re.compile(r'\{\{\s*' + inner + r'\s*\}\}', re.I)
     return square, curly
 def _xml_replace_all(xml: str, mapping: dict) -> str:
     def _quick(m):
