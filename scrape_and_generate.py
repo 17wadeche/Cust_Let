@@ -101,25 +101,49 @@ def wait_find_in_any_frame(page, selectors, timeout_ms=30000, poll_ms=600):
                     continue
         time.sleep(poll_ms/1000.0)
     raise PWTimeout(f"Could not find element in any frame for selectors: {selectors}")
+def _norm_key(s: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '_', (s or '').strip().lower()).strip('_')
+def _build_alias_mapping(mapping: dict) -> dict:
+    out = {}
+    for k, v in mapping.items():
+        nk = _norm_key(k)
+        out[nk] = v
+        if nk.endswith('_1'):
+            out[nk[:-2]] = v
+    aliases = {
+        'today_date': out.get('todays_date', ''),
+        'ir_name': out.get('ir_name', ''),
+        'ir_with_address': out.get('ir_with_address', ''),
+        'event_date': out.get('event_date', ''),
+        'event_description': out.get('event_description', ''),
+        'analysis_results_if_present': out.get('analysis_results', ''),
+        'investigation_summary': out.get('investigation_summary', ''),
+        'product_id': out.get('product_id_1', ''),
+        'product_desc': out.get('product_desc_1', ''),
+        'lot_serial_number': out.get('serial_or_lot_1', ''),
+        'lot_serial_no': out.get('serial_or_lot_1', ''),
+        'serial_no_lot_no': out.get('serial_or_lot_1', ''),
+    }
+    out.update({k: v for k, v in aliases.items() if v})
+    return out
+_PLACEHOLDER_RE = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])')
+def _replace_in_text(text: str, resolved_map: dict) -> str:
+    def repl(m):
+        key = _norm_key(m.group(2))
+        return resolved_map.get(key, '')
+    return _PLACEHOLDER_RE.sub(repl, text)
 def replace_everywhere(doc, mapping):
+    resolved = _build_alias_mapping(mapping)
     for p in doc.paragraphs:
-        text = p.text
-        for k, v in mapping.items():
-            text = text.replace(f"{{{{{k}}}}}", v or "")
-        if text != p.text:
-            for r in p.runs:
-                r.clear()
-            p.text = text
+        new_text = _replace_in_text(p.text, resolved)
+        if new_text != p.text:
+            p.text = new_text
     for t in doc.tables:
-        for r in t.rows:
-            for c in t.rows[0].cells:  # no-op: just keeps structure similar
-                pass
-        for r in t.rows:
-            for c in r.cells:
-                text = c.text
-                for k, v in mapping.items():
-                    text = text.replace(f"{{{{{k}}}}}", v or "")
-                c.text = text
+        for row in t.rows:
+            for cell in row.cells:
+                new_text = _replace_in_text(cell.text, resolved)
+                if new_text != cell.text:
+                    cell.text = new_text
 def fill_docx(template_path, out_path, mapping):
     doc = Document(template_path)
     replace_everywhere(doc, mapping)
@@ -610,13 +634,11 @@ def read_event_description(page, root_frame):
 def click_left_nav_product_analysis(page):
     for fr in page.frames:
         try:
-            header = fr.locator("xpath=//*[contains(@class,'left-nav')]//div[contains(@class,'ProductAnalysis')]").first
+            header = fr.locator("xpath=//*[contains(@class,'left-nav')]//*[contains(@class,'ProductAnalysis')]").first
             if not header.count():
                 continue
             log("[nav] Opening left nav: Product Analysis")
-            clicker = header.locator("xpath=following-sibling::div[contains(@class,'clicker')][1]").first
-            if clicker.count():
-                robust_click(clicker, fr)
+            _pa_try_expand(fr)  # <-- use the helper
             try:
                 fr.wait_for_selector(_section_anchor_xpath("Product Analysis"), timeout=3000)
             except Exception:
@@ -695,8 +717,8 @@ def _section_anchor_xpath(section: str) -> str:
     return (
         "xpath=//*[contains(@class,'left-nav')]"
         f"//div[contains(@class,'{cls}')]"
-        "/following-sibling::div[contains(@class,'clicker')][1]"
-        "/following-sibling::div[contains(@class,'data-wrapper')][1]"
+        "/following-sibling::*[contains(@class,'clicker')][1]"
+        "/following-sibling::*[contains(@class,'data-wrapper')][1]"
         "//a[(contains(@class,'GUIDE-sideNav') or contains(@class,'GUIDE-sideNavLink') "
         "     or @data-trans-id or @data-transId or @data-transid)]"
     )
@@ -743,18 +765,25 @@ def _enumerate_section_items(fr, section_text: str):
     log(f"[LeftNav:{section_text}] anchors detected: {n}")
     return items
 def _scan_pa_anywhere(page, section_text: str):
-    lower = section_text.lower()
     found = []
     for fr in page.frames:
         try:
             anchors = fr.locator(
-                "xpath=//div[contains(@class,'left-nav')]"
+                "xpath=//*[contains(@class,'left-nav')]"
+                "//div[contains(@class,'ProductAnalysis')]"
+                "/following-sibling::*[contains(@class,'clicker')][1]"
+                "/following-sibling::*[contains(@class,'data-wrapper')][1]"
                 "//a[(contains(@class,'GUIDE-sideNav') or contains(@class,'GUIDE-sideNavLink') "
-                "      or @data-trans-id or @data-transId or @data-transid)"
-                f" and preceding::div[contains(@class,'left')][1]"
-                f"[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{lower}')]]"
+                "     or @data-trans-id or @data-transId or @data-transid)]"
             )
             n = anchors.count()
+            if n == 0:
+                anchors = fr.locator(
+                    "xpath=//*[contains(@class,'left-nav')]"
+                    "//a[(contains(@class,'GUIDE-sideNav') or contains(@class,'GUIDE-sideNavLink') "
+                    "     or @data-trans-id or @data-transId or @data-transid)]"
+                )
+                n = anchors.count()
             for i in range(n):
                 a = anchors.nth(i)
                 try:
@@ -779,28 +808,31 @@ def _ensure_section_expanded(page, section: str):
     fr = _find_leftnav_frame(page)
     if not fr:
         return
-    label = {"Product Analysis":"Product Analysis",
-             "Investigations":"Investigation",
-             "Product Line Items":"Product Line Items"}.get(section, section)
+    if section == "Product Analysis":
+        _pa_try_expand(fr)
+        try:
+            fr.wait_for_selector(_section_anchor_xpath("Product Analysis"), timeout=1200)
+        except Exception:
+            pass
+        return
+    cls = _section_class(section)
     header = fr.locator(
-        "xpath=//div[contains(@class,'left-nav')]/*[contains(@class,'left')]/div"
-        f"[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{label.lower()}')]"
+        f"xpath=//*[contains(@class,'left-nav')]//*[contains(@class,'{cls}')]"
     ).first
     if not header.count():
         return
-    anchors = _product_analysis_anchor_locator(fr)
-    if anchors.count() == 0:
+    clicker = header.locator("xpath=following-sibling::*[contains(@class,'clicker')][1]").first
+    container = header.locator("xpath=following-sibling::*[contains(@class,'data-wrapper')][1]").first
+    need_click = True
+    if container.count():
         try:
-            clicker = header.locator("xpath=following-sibling::div[contains(@class,'clicker')][1]").first
-            if clicker.count():
-                robust_click(clicker, fr)
-                fr.wait_for_timeout(250)
+            need_click = container.evaluate("n => getComputedStyle(n).display === 'none'")
         except Exception:
             pass
-    try:
-        fr.wait_for_selector("css=a[data-trans-id], a[data-transId], a[data-transid], a.GUIDE-sideNav, a.GUIDE-sideNavLink", timeout=800)
-    except Exception:
-        pass
+    if need_click and clicker.count():
+        robust_click(clicker, fr)
+        try: fr.wait_for_timeout(250)
+        except Exception: pass
 def list_side_nav_items(page, section: str):
     fr = _find_leftnav_frame(page)
     if not fr:
@@ -1176,6 +1208,31 @@ def _safe_text(node):
     except Exception:
         raw = ""
     return _normalize_text(raw)
+def _pa_try_expand(fr):
+    header = fr.locator("xpath=//*[contains(@class,'left-nav')]//*[contains(@class,'ProductAnalysis')]").first
+    if not header.count(): 
+        return False
+    clicker = header.locator("xpath=following-sibling::*[contains(@class,'clicker')][1]").first
+    container = header.locator("xpath=following-sibling::*[contains(@class,'data-wrapper')][1]").first
+    if container.count():
+        try:
+            is_hidden = container.evaluate("n => getComputedStyle(n).display === 'none'")
+        except Exception:
+            is_hidden = False
+        if not is_hidden:
+            return True
+    if clicker.count():
+        try:
+            robust_click(clicker, fr)
+            fr.wait_for_timeout(250)
+        except Exception:
+            pass
+    if container.count():
+        try:
+            return not container.evaluate("n => getComputedStyle(n).display === 'none'")
+        except Exception:
+            return True
+    return False
 def _pa_anchor_by_data_id(fr, data_id: str):
     if not data_id:
         return None
