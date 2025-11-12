@@ -1,12 +1,12 @@
 
-crm_url: "https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/"
+crm_url: "https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/default.htm?"
 headless: false              # give yourself time to login/SSO if needed
 header_frame_name_regex: "HeaderFrame"
 content_frame_name_regex: "WorkAreaFrame1"
-sso_pause_seconds: 30
+sso_pause_seconds: 45
 sso_max_attempts: 10
 sso_probe_period_ms: 3000
-sso_reload_between_attempts: true
+sso_reload_between_attempts: false
 sso_total_timeout_ms: 300000
 search:
   selector: "xpath=//input[contains(@id,'SearchValue')]"

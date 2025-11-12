@@ -997,27 +997,32 @@ def read_analysis_summary_for_current_pli(page):
     return (read_text_by_labels(page, labels) or "").strip()
 def wait_for_search_with_retries(page, s, *, max_attempts=8, probe_period_ms=2000,
                                  reload_between_attempts=True, total_timeout_ms=240000):
+    import re, time
     start = time.time()
-    probe_selectors = [s.get('selector')] + (s.get('fallback_selectors', []) or [])
-    probe_selectors = [sel for sel in probe_selectors if sel] or ["xpath=//input[contains(@id,'SearchValue')]"]
+    aad_host_rx = re.compile(r'(?:^|\.)login\.microsoftonline\.com$', re.I)
     def _try_once():
         try:
-            loc, ctx, used = wait_find_in_any_frame(page, probe_selectors, timeout_ms=2500, poll_ms=150)
+            loc, ctx, used = wait_find_in_any_frame(page,
+                                                    [s.get('selector')] + (s.get('fallback_selectors', []) or []),
+                                                    timeout_ms=2500, poll_ms=150)
             return (loc, ctx, used)
         except Exception:
             return (None, None, None)
     attempt = 0
     while attempt < max_attempts and (time.time() - start) * 1000 < total_timeout_ms:
         attempt += 1
-        log(f"[SSO] probe attempt {attempt}/{max_attempts}")
         loc, ctx, used = _try_once()
         if loc:
-            log(f"[SSO] search ready via {used}")
             return (loc, ctx, used)
         page.wait_for_timeout(probe_period_ms)
-        if reload_between_attempts:
+        host = ""
+        try:
+            from urllib.parse import urlparse
+            host = urlparse(page.url).hostname or ""
+        except Exception:
+            pass
+        if reload_between_attempts and host and not aad_host_rx.search(host):
             try:
-                log("[SSO] reloading page to advance SSO…")
                 page.reload(wait_until="load")
             except Exception:
                 pass
