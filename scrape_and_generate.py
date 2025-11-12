@@ -77,7 +77,7 @@ def soft_click_go(ctx, custom_selector=None):
         except Exception:
             pass
     return False
-def wait_find_in_any_frame(page, selectors, timeout_ms=30000, poll_ms=300):
+def wait_find_in_any_frame(page, selectors, timeout_ms=30000, poll_ms=600):
     import time
     deadline = time.time() + (timeout_ms/1000.0)
     tried = set()
