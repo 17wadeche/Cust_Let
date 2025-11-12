@@ -1037,40 +1037,37 @@ def click_associated_transactions_tab(page, root_frame):
     )
 
 def _find_assoc_tx_frame(page):
-    # Any frame containing a th-clr grid with our table id pattern
     cues = [
+        "xpath=//div[contains(@id,'_Table_bottom') or contains(@id,'_table_bottom')]",
         "xpath=//table[contains(@class,'th-clr-table') and starts-with(@id,'C') and contains(@id,'_Table')]",
-        "xpath=//div[contains(@id,'_Table_bottomDiv')]//table[contains(@class,'th-clr-table')]",
     ]
     for sel in cues:
         fr = find_frame_with(page, sel, timeout_ms=6000)
         if fr:
             return fr
     return None
-
-def _assoc_tx_tables(fr):
-    # Try to get header & body tables inside the same container; be forgiving about ids
-    container = fr.locator(
-        "xpath=//div[contains(@id,'_Table_bottomDiv')]/ancestor::div[contains(@id,'_Table')][1]"
+def _assoc_tx_tables_and_scroller(fr):
+    scroll_div = fr.locator(
+        "xpath=//div[contains(@id,'_Table_bottomDiv') or contains(@id,'_table_bottom')][contains(@style,'overflow')]"
     ).first
-    if not container.count():
-        container = fr
-
-    header_tbl = container.locator(
-        "xpath=.//table[contains(@id,'_TableHeader') or contains(@id,'_Table_top') or contains(@id,'_TableHeader_top')]"
+    if not scroll_div.count():
+        scroll_div = fr.locator(
+            "xpath=(//table[contains(@class,'th-clr-table') and contains(@id,'_Table')])[1]/ancestor::div[contains(@style,'overflow')]"
+        ).first
+    header_tbl = fr.locator(
+        "xpath=//table[(contains(@id,'_TableHeader') or contains(@id,'_Table_top')) and contains(@class,'th-clr-table')]"
     ).first
-    body_tbl = container.locator(
-        "xpath=.//table[contains(@class,'th-clr-table') and contains(@id,'_Table') and not(contains(@id,'Header'))]"
+    body_tbl = fr.locator(
+        "xpath=//div[contains(@id,'_Table_bottom') or contains(@id,'_table_bottom')]//table[contains(@class,'th-clr-table')]"
     ).first
     if not body_tbl.count():
-        # Sometimes the “header” id actually holds the body (seen in your screenshot)
-        body_tbl = container.locator(
-            "xpath=.//table[contains(@class,'th-clr-table') and (contains(@id,'_TableHeader') or contains(@id,'_Table'))]"
+        body_tbl = fr.locator(
+            "xpath=(//table[contains(@class,'th-clr-table') and contains(@id,'_Table')])[last()]"
         ).first
-    return header_tbl if header_tbl.count() else None, body_tbl if body_tbl.count() else None
-
+    return (header_tbl if header_tbl.count() else None,
+            body_tbl if body_tbl.count() else None,
+            scroll_div if scroll_div.count() else None)
 def _hdr_map_from_table(tbl):
-    # Read header cells from <thead> or the first row that uses ths
     hmap = {}
     if not tbl or not tbl.count():
         return hmap
@@ -1082,7 +1079,40 @@ def _hdr_map_from_table(tbl):
         if t:
             hmap[_norm_key(t)] = i
     return hmap
-
+def _hdr_map_from_aria(body_tbl):
+    amap = {}
+    if not body_tbl or not body_tbl.count():
+        return amap
+    first = body_tbl.locator("xpath=.//tr[td]").first
+    cells = first.locator("xpath=.//th|.//td")
+    for j in range(cells.count()):
+        lab = (cells.nth(j).get_attribute("aria-label") or "").strip()
+        if lab:
+            amap[_norm_key(lab)] = j
+    return amap
+def _scroll_to_load_all_in_div(fr, body_tbl, scroll_div):
+    if not scroll_div or not scroll_div.count():
+        _scroll_to_load_all(fr, body_tbl)
+        return
+    prev = -1
+    stable = 0
+    for _ in range(120):
+        rows = body_tbl.locator("xpath=.//tr[td]")
+        n = rows.count()
+        if n == prev:
+            stable += 1
+            if stable >= 3:  # 3 stable ticks ≈ done
+                break
+        else:
+            stable = 0
+        prev = n
+        try:
+            scroll_div.evaluate("n => { n.scrollTop = n.scrollHeight; }")
+        except Exception:
+            box = scroll_div.bounding_box()
+            if box:
+                fr.mouse.wheel(0, 1200)
+        fr.wait_for_timeout(180)
 def _scroll_to_load_all(fr, target):
     prev = -1
     for _ in range(20):
@@ -1126,29 +1156,32 @@ def read_associated_transactions_complete(page, root_frame):
     if not fr:
         log("[AssocTx] grid frame not found")
         return {"product_analysis": [], "investigation": []}
-    header_tbl, body_tbl = _assoc_tx_tables(fr)
+    header_tbl, body_tbl, scroll_div = _assoc_tx_tables_and_scroller(fr)
     if not body_tbl:
         log("[AssocTx] grid table not found")
         return {"product_analysis": [], "investigation": []}
-    _scroll_to_load_all(fr, body_tbl)
-    hmap = _hdr_map_from_table(header_tbl or body_tbl)
+    _scroll_to_load_all_in_div(fr, body_tbl, scroll_div)
+    hmap = _hdr_map_from_table(header_tbl) or {}
+    if not {"transaction_id","transaction_type","status"} <= set(hmap.keys()):
+        a = _hdr_map_from_aria(body_tbl)
+        hmap = {**a, **hmap}  # aria wins only where header was missing
     idx_id     = hmap.get("transaction_id")
     idx_type   = hmap.get("transaction_type")
     idx_status = hmap.get("status")
-    if idx_id is None or idx_type is None or idx_status is None:
+    if None in (idx_id, idx_type, idx_status):
         ii, it, is_ = _infer_indices_by_samples(body_tbl)
         idx_id     = idx_id     if idx_id     is not None else ii
         idx_type   = idx_type   if idx_type   is not None else it
         idx_status = idx_status if idx_status is not None else is_
-    if idx_id is None or idx_type is None or idx_status is None:
-        log(f"[AssocTx] couldn’t determine columns (id={idx_id}, type={idx_type}, status={idx_status})")
+    log(f"[AssocTx] indices → id={idx_id}, type={idx_type}, status={idx_status}")
+    if None in (idx_id, idx_type, idx_status):
+        log("[AssocTx] couldn’t determine all columns")
         return {"product_analysis": [], "investigation": []}
     rows = body_tbl.locator("xpath=.//tr[td]")
     n = rows.count()
     pa, inv = [], []
     for i in range(n):
-        r = rows.nth(i)
-        cells = r.locator("xpath=.//th|.//td")
+        cells = rows.nth(i).locator("xpath=.//th|.//td")
         count = cells.count()
         if count <= max(idx_id, idx_type, idx_status):
             continue
@@ -1157,8 +1190,8 @@ def read_associated_transactions_complete(page, root_frame):
         status_tx = clean(cells.nth(idx_status).inner_text())
         m = re.search(r"\b\d{5,}\b", txid_txt or "")
         txid = m.group(0) if m else ""
-        ttype = (type_txt or "").strip().lower()
-        stat  = (status_tx or "").strip().lower()
+        ttype = (type_txt or "").lower()
+        stat  = (status_tx or "").lower()
         if not (txid and stat == "complete"):
             continue
         if ttype.startswith("product analysis"):
