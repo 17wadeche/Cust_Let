@@ -1849,30 +1849,6 @@ def _find_global_search_input_in_frame(fr):
         except Exception:
             pass
     return None
-
-def _find_global_search_input_near_scope(page):
-    # Use the frame that contains the Objects control (header/global frame)
-    fr = _find_scope_frame_for_objects(page)
-    if fr:
-        loc = _find_global_search_input_in_frame(fr)
-        if loc:
-            log("[scope] Found global search input in SAME frame as Objects")
-            return loc, fr
-    # Fallback: anywhere, but avoid WorkAreaFrame1 (content) unless it also has Objects
-    for fr2 in page.frames:
-        try:
-            if (fr2.name or "") == "WorkAreaFrame1":
-                # skip the content frame unless it ALSO has the Objects control
-                if not _objects_dropdown_button(fr2).count():
-                    continue
-            loc = _find_global_search_input_in_frame(fr2)
-            if loc:
-                log("[scope] Found global search input (fallback)")
-                return loc, fr2
-        except Exception:
-            continue
-    return None, None
-
 def _objects_input(fr):
     return fr.locator("xpath=//input[contains(@id,'_Objects') and contains(@class,'th-if') and @role='combobox']").first
 def _open_objects_popup(fr):
@@ -1919,7 +1895,6 @@ def _popup_options_any(fr):
             if txt:
                 clicky = el.locator("xpath=ancestor-or-self::*[self::li or self::a][1]").first
                 candidates.append((clicky if clicky.count() else el, txt))
-
     return candidates
 def _pick_popup_option_by_text(fr, *want_texts):
     wants = [w.strip().lower() for w in want_texts if w]
@@ -2092,6 +2067,8 @@ def read_analysis_summary_for_txid(page, txid: str) -> str:
         page.wait_for_timeout(500)
         txt = read_analysis_summary_for_current_pli(page)
     return (txt or "").strip()
+def read_investigation_summary_for_txid(page, txid: str) -> str:
+    return read_analysis_summary_for_txid(page, txid)
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -2293,6 +2270,20 @@ def main():
                 pa_summary_lines.append(f"{txid}\n(No Analysis Summary found)")
         if pa_summary_lines:
             values["analysis_results"] = "\n\n".join(pa_summary_lines)
+        inv_ids_raw = values.get("assoc_tx_investigation_ids", "") or ", ".join(assoc.get("investigation", []))
+        inv_ids = [x.strip() for x in inv_ids_raw.split(",") if x.strip()]
+        inv_summary_lines = []
+        for txid in inv_ids:
+            log(f"[INV-SUMMARY] Fetching Investigation Summary for INV ID: {txid}")
+            summary = read_investigation_summary_for_txid(page, txid)  # alias to analysis reader
+            if summary:
+                log(f"[INV-SUMMARY] {txid}: length={len(summary)}")
+                inv_summary_lines.append(f"{txid}\n{summary}")
+            else:
+                log(f"[INV-SUMMARY] {txid}: (no Investigation Summary found)")
+                inv_summary_lines.append(f"{txid}\n(No Investigation Summary found)")
+        if inv_summary_lines:
+            values["investigation_summary"] = "\n\n".join(inv_summary_lines)
         for idx, p in enumerate(products[:3], start=1):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"] = (p.get("id") or code)
