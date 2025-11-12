@@ -675,16 +675,39 @@ def wait_for_textinfo_change(page, previous_sig, timeout=10000):
             return True
         time.sleep(0.15)
     return False
-def list_pli_side_nav_items(page):
-    fr = _find_frame_with_selector(page,
-        "xpath=//a[contains(@class,'GUIDE-sideNav')] | //div[contains(@class,'data-wrapper')]//a")
+def _find_leftnav_frame(page):
+    # whichever frame holds the left nav (works with your layout)
+    for fr in page.frames:
+        try:
+            if fr.locator("xpath=//div[contains(@class,'left-nav')]").first.count():
+                return fr
+        except Exception:
+            pass
+    return None
+
+def _section_anchor_xpath(section: str) -> str:
+    section_markers = {
+        "Product Line Items": "contains(@class,'PLI')",
+        "Product Analysis":   "contains(@class,'ProductAnalysis')",
+        "Investigations":     "contains(@class,'Investigation')",
+    }
+    marker = section_markers.get(section, "contains(@class,'ProductAnalysis')")
+    return (
+        "xpath=//div[contains(@class,'left-nav')]"
+        f"//div[{marker}]"
+        "/following-sibling::div[contains(@class,'clicker')][1]"
+        "/following-sibling::div[contains(@class,'data-wrapper')][1]"
+        "//a[contains(@class,'GUIDE-sideNav')]"
+    )
+def list_side_nav_items(page, section: str):
+    fr = _find_leftnav_frame(page)
     if not fr:
         return []
-    links = fr.locator("xpath=(//a[contains(@class,'GUIDE-sideNav')] | //div[contains(@class,'data-wrapper')]//a)")
-    n = links.count()
+    anchors = fr.locator(_section_anchor_xpath(section))
+    n = anchors.count()
     out = []
     for i in range(n):
-        el = links.nth(i)
+        el = anchors.nth(i)
         t = clean(el.inner_text())
         code = extract_product_code(t)
         out.append({"text": t, "code": code, "el": el, "frame": fr})
@@ -786,7 +809,7 @@ def collect_product_analysis(page, root_frame, known_products):
     if not had_click:
         return { (p.get("id") or p.get("code") or "").strip(): default_msg
                  for p in known_products if (p.get("id") or p.get("code")) }
-    items = list_pli_side_nav_items(page)
+    items = list_side_nav_items(page, "Product Analysis")
     from collections import defaultdict
     by_code = defaultdict(list)
     for it in items:
@@ -1176,7 +1199,7 @@ def main():
             values.setdefault("product_extras", "\n".join(extras))
         log("[step 7] Investigation side panel → Summary of Investigations per item")
         if click_left_nav_investigation(page):
-            inv_items = list_pli_side_nav_items(page)
+            inv_items = list_side_nav_items(page, "Investigations")
             inv_lines = []
             for it in inv_items:
                 if not robust_click(it["el"], it["frame"]):
