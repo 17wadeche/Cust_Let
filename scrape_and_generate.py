@@ -674,7 +674,12 @@ def wait_for_textinfo_change(page, previous_sig, timeout=10000):
         time.sleep(0.15)
     return False
 def _find_leftnav_frame(page):
-    # whichever frame holds the left nav (works with your layout)
+    for fr in page.frames:
+        try:
+            if fr.locator("css=a[data-trans-id], a[data-transId], a[data-transid]").first.count():
+                return fr
+        except Exception:
+            pass
     for fr in page.frames:
         try:
             if fr.locator("xpath=//div[contains(@class,'left-nav')]").first.count():
@@ -682,7 +687,6 @@ def _find_leftnav_frame(page):
         except Exception:
             pass
     return None
-
 def _section_anchor_xpath(section: str) -> str:
     section_markers = {
         "Product Line Items": "contains(@class,'PLI')",
@@ -697,16 +701,39 @@ def _section_anchor_xpath(section: str) -> str:
         "/following-sibling::div[contains(@class,'data-wrapper')][1]"
         "//a[contains(@class,'GUIDE-sideNav')]"
     )
+def _scan_pa_anywhere(page):
+    found = []
+    for fr in page.frames:
+        try:
+            anchors = fr.locator("css=a[data-trans-id], a[data-transId], a[data-transid], a.GUIDE-sideNav, a.GUIDE-sideNavLink]")
+            n = anchors.count()
+            if n:
+                for i in range(min(n, 200)):
+                    a = anchors.nth(i)
+                    txt = (a.inner_text().strip() or (a.get_attribute("title") or "")).strip()
+                    did = (a.get_attribute("data-trans-id") or a.get_attribute("data-transId") or a.get_attribute("data-transid") or "").strip()
+                    if did or ("-" in txt and len(txt) <= 120):  # e.g., "EEAORVIL21A - Other"
+                        found.append((fr, a, txt, did))
+        except Exception:
+            continue
+    return found
 def _product_analysis_anchor_locator(fr):
-    return fr.locator(
+    preferred = fr.locator(
         "xpath=//div[contains(@class,'left-nav')]"
-        "//div[contains(@class,'ProductAnalysis')]/following-sibling::div[contains(@class,'clicker')][1]"
+        "//div[contains(@class,'ProductAnalysis') or contains(., 'Product Analysis')]"
+        "/following-sibling::div[contains(@class,'clicker')][1]"
         "/following-sibling::div[contains(@class,'data-wrapper')][1]"
-        "//a[(@data-trans-id and @data-trans-id!='') or contains(@class,'GUIDE-sideNav') or contains(@class,'GUIDE-sideNavLink')]"
+        "//a[(contains(@class,'GUIDE-sideNav') or contains(@class,'GUIDE-sideNavLink') or @data-trans-id or @data-transId or @data-transid)]"
     )
+    if preferred.count():
+        return preferred
+    fallback = fr.locator("css=a[data-trans-id], a[data-transId], a[data-transid], a.GUIDE-sideNav, a.GUIDE-sideNavLink")
+    return fallback
 def _enumerate_pa_items(fr):
     anchors = _product_analysis_anchor_locator(fr)
     n = anchors.count()
+    if n == 0:
+        return []  # caller will try brute-force
     log(f"[PA] detected {n} Product Analysis anchors")
     items = []
     for i in range(n):
@@ -716,7 +743,7 @@ def _enumerate_pa_items(fr):
         except Exception:
             txt = (a.get_attribute("title") or "").strip()
         code = extract_product_code(txt)
-        did  = a.get_attribute("data-trans-id") or ""
+        did  = a.get_attribute("data-trans-id") or a.get_attribute("data-transId") or a.get_attribute("data-transid") or ""
         items.append({"i": i, "text": txt, "code": code, "data_id": did})
     return items
 def _content_frame(page):
@@ -728,27 +755,28 @@ def _ensure_section_expanded(page, section: str):
     fr = _find_leftnav_frame(page)
     if not fr:
         return
-    header_map = {
-        "Product Analysis":   "Product Analysis",
-        "Investigations":     "Investigation",
-        "Product Line Items": "Product Line Items",
-    }
-    label = header_map.get(section, section)
+    label = {"Product Analysis":"Product Analysis",
+             "Investigations":"Investigation",
+             "Product Line Items":"Product Line Items"}.get(section, section)
     header = fr.locator(
         "xpath=//div[contains(@class,'left-nav')]/*[contains(@class,'left')]/div"
-        f"[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{label.lower()}')]"
+        f"[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{label.lower()}')]"
     ).first
     if not header.count():
         return
-    anchors = fr.locator(_section_anchor_xpath(section))
+    anchors = _product_analysis_anchor_locator(fr)
     if anchors.count() == 0:
         try:
             clicker = header.locator("xpath=following-sibling::div[contains(@class,'clicker')][1]").first
             if clicker.count():
                 robust_click(clicker, fr)
-                fr.wait_for_timeout(150)
+                fr.wait_for_timeout(250)
         except Exception:
             pass
+    try:
+        fr.wait_for_selector("css=a[data-trans-id], a[data-transId], a[data-transid], a.GUIDE-sideNav, a.GUIDE-sideNavLink", timeout=800)
+    except Exception:
+        pass
 def list_side_nav_items(page, section: str):
     fr = _find_leftnav_frame(page)
     if not fr:
@@ -894,9 +922,25 @@ def wait_for_search_with_retries(page, s, *, max_attempts=8, probe_period_ms=200
 def get_pa_code_to_id(page):
     nav_fr = _find_leftnav_frame(page)
     if not nav_fr:
-        return {}
+        any_found = _scan_pa_anywhere(page)
+        mapping = {}
+        for fr,a,txt,did in any_found:
+            code = extract_product_code(txt).upper()
+            if code and did:
+                mapping[code] = did
+        log(f"[PA] (global) code→id mapped: {len(mapping)}")
+        return mapping
     _ensure_section_expanded(page, "Product Analysis")
     items = _enumerate_pa_items(nav_fr)
+    if not items:
+        any_found = _scan_pa_anywhere(page)
+        mapping = {}
+        for fr,a,txt,did in any_found:
+            code = extract_product_code(txt).upper()
+            if code and did:
+                mapping[code] = did
+        log(f"[PA] (fallback) code→id mapped: {len(mapping)}")
+        return mapping
     log(f"[PA] detected {len(items)} Product Analysis anchors")
     return { (it["code"] or "").upper(): (it["data_id"] or "") for it in items if it["code"] and it["data_id"] }
 def collect_product_analysis(page, root_frame, known_products):
@@ -910,14 +954,24 @@ def collect_product_analysis(page, root_frame, known_products):
     _ensure_section_expanded(page, "Product Analysis")
     items = _enumerate_pa_items(nav_fr)
     if not items:
-        log("[PA] no anchors found under Product Analysis. Check class names/DOM.")
+        log("[PA] no anchors found under Product Analysis. Trying brute-force sweep…")
+        any_found = _scan_pa_anywhere(page)
+        filtered = []
+        for fr,a,txt,did in any_found:
+            if (did or " - " in txt) and (fr == nav_fr or True):
+                filtered.append({"i": 0, "text": txt, "code": extract_product_code(txt), 
+                                "data_id": did, "el": a, "frame": fr})
+        if filtered:
+            items = filtered
+            log(f"[PA] brute-force recovered {len(items)} anchors")
     else:
-        log("[PA] first 5 anchors: " + "; ".join([repr(it["text"]) for it in items[:5]]))
+        log("[PA] first 30 anchors: " + "; ".join([repr(it["text"]) for it in items[:30]]))
     summaries_by_text = {}
     for it in items:
         _ensure_section_expanded(page, "Product Analysis")
         target = _pa_anchor_by_data_id(nav_fr, it["data_id"])
-        if not (target and target.count()):
+        if not (target and target.count()) and it.get("el"):
+            target = it["el"]
             anchors_now = _product_analysis_anchor_locator(nav_fr)
             target = anchors_now.nth(it["i"]) if anchors_now.count() > it["i"] else None
         if not target or not target.count():
