@@ -112,9 +112,10 @@ def _build_alias_mapping(mapping: dict) -> dict:
         nk = _norm_key(k)
         out[nk] = v
         if nk.endswith('_1'):
-            out[nk[:-2]] = v  
+            out[nk[:-2]] = v
     aliases = {
         'today_date': out.get('todays_date', ''),
+        "today_s_date": out.get('todays_date', ''),  # <- add this line
         'ir_name': out.get('ir_name', ''),
         'ir_with_address': out.get('ir_with_address', ''),
         'event_date': out.get('event_date', ''),
@@ -142,9 +143,9 @@ def _split_tolerant(label: str) -> str:
     return ''.join(parts)
 def _patterns_for_key(human_label: str):
     inner = _split_tolerant(human_label)
-    p1 = re.compile(rf'\[\[\s*{inner}\s*\]\]', re.I)
-    p2 = re.compile(rf'\[\[\s*{inner}\s*\]\]', re.I)
-    return p1, p2
+    square = re.compile(rf'\[\[\s*{inner}\s*\]\]', re.I)
+    curly  = re.compile(rf'{{\s*{inner}\s*}}', re.I)
+    return square, curly
 def _xml_replace_all(xml: str, mapping: dict) -> str:
     def _quick(m):
         return mapping.get(_norm_key(m.group(2)), '')
