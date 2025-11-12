@@ -702,19 +702,28 @@ def _product_analysis_anchor_locator(fr):
         "xpath=//div[contains(@class,'left-nav')]"
         "//div[contains(@class,'ProductAnalysis')]/following-sibling::div[contains(@class,'clicker')][1]"
         "/following-sibling::div[contains(@class,'data-wrapper')][1]"
-        "//a[contains(@class,'GUIDE-sideNav')]"
+        "//a[(@data-trans-id and @data-trans-id!='') or contains(@class,'GUIDE-sideNav') or contains(@class,'GUIDE-sideNavLink')]"
     )
 def _enumerate_pa_items(fr):
     anchors = _product_analysis_anchor_locator(fr)
     n = anchors.count()
+    log(f"[PA] detected {n} Product Analysis anchors")
     items = []
     for i in range(n):
         a = anchors.nth(i)
-        txt = (a.inner_text().strip() or (a.get_attribute("title") or "").strip())
+        try:
+            txt = (a.inner_text().strip() or (a.get_attribute("title") or "").strip())
+        except Exception:
+            txt = (a.get_attribute("title") or "").strip()
         code = extract_product_code(txt)
-        did  = a.get_attribute("data-trans-id") or ""  # stable attribute from your screenshot
+        did  = a.get_attribute("data-trans-id") or ""
         items.append({"i": i, "text": txt, "code": code, "data_id": did})
     return items
+def _content_frame(page):
+    for fr in page.frames:
+        if (fr.name or "") == "WorkAreaFrame1":
+            return fr
+    return page.main_frame
 def _ensure_section_expanded(page, section: str):
     fr = _find_leftnav_frame(page)
     if not fr:
@@ -882,6 +891,14 @@ def wait_for_search_with_retries(page, s, *, max_attempts=8, probe_period_ms=200
             except Exception:
                 pass
     raise PWTimeout("[SSO] Search not available after retries")
+def get_pa_code_to_id(page):
+    nav_fr = _find_leftnav_frame(page)
+    if not nav_fr:
+        return {}
+    _ensure_section_expanded(page, "Product Analysis")
+    items = _enumerate_pa_items(nav_fr)
+    log(f"[PA] detected {len(items)} Product Analysis anchors")
+    return { (it["code"] or "").upper(): (it["data_id"] or "") for it in items if it["code"] and it["data_id"] }
 def collect_product_analysis(page, root_frame, known_products):
     if not click_left_nav_product_analysis(page):
         default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
@@ -892,6 +909,10 @@ def collect_product_analysis(page, root_frame, known_products):
         return {}
     _ensure_section_expanded(page, "Product Analysis")
     items = _enumerate_pa_items(nav_fr)
+    if not items:
+        log("[PA] no anchors found under Product Analysis. Check class names/DOM.")
+    else:
+        log("[PA] first 5 anchors: " + "; ".join([repr(it["text"]) for it in items[:5]]))
     summaries_by_text = {}
     for it in items:
         _ensure_section_expanded(page, "Product Analysis")
@@ -901,25 +922,27 @@ def collect_product_analysis(page, root_frame, known_products):
             target = anchors_now.nth(it["i"]) if anchors_now.count() > it["i"] else None
         if not target or not target.count():
             continue
+        content_fr = _content_frame(page)
         prev_sig = _textinfo_signature(page)
         if not robust_click_plus(target, nav_fr):
+            log(f"[PA] click failed for: {it['text']!r} data_id={it['data_id']}")
             continue
-        changed = False
-        try:
-            nav_fr.wait_for_selector(
-                "xpath=//div[contains(@class,'th-clr-cnt-bottom')]"
-                "//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]",
-                timeout=7000
-            )
-            changed = True
-        except Exception:
-            pass
+        changed = wait_for_textinfo_change(page, prev_sig, timeout=10000)
         if not changed:
-            changed = wait_for_textinfo_change(page, prev_sig, timeout=10000)
+            try:
+                content_fr.wait_for_selector(
+                    "xpath=//div[contains(@class,'th-clr-cnt-bottom')]"
+                    "//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]",
+                    timeout=3000
+                )
+                changed = True
+            except Exception:
+                pass
         if not changed:
-            nav_fr.wait_for_timeout(350)
+            content_fr.wait_for_timeout(350)
 
         txt = read_analysis_summary_for_current_pli(page).strip()
+        log(f"[PA] read summary for {it['text']!r}: {('len='+str(len(txt)) if txt else 'EMPTY')}")
         if txt:
             summaries_by_text[it["text"]] = txt
     default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
@@ -930,7 +953,7 @@ def collect_product_analysis(page, root_frame, known_products):
         best = ""
         if code:
             for t, s in summaries_by_text.items():
-                if code in (extract_product_code(t) or "").upper():
+                if code == (extract_product_code(t) or "").upper():
                     best = s; break
         if not best:
             tokens = [pid, code] + re.findall(r'[A-Z0-9_]+', p.get("desc","").upper())
@@ -939,7 +962,8 @@ def collect_product_analysis(page, root_frame, known_products):
                 up = t.upper()
                 if any(tok and tok in up for tok in tokens):
                     best = s; break
-        results[pid or code or p.get("desc","")] = best or default_msg
+        key = code or pid or p.get("desc","")
+        results[key] = best or default_msg
     return results
 def robust_click(el, frame, timeout_ms=8000):
     try:
@@ -1095,6 +1119,18 @@ def robust_click_plus(el, frame):
         pass
     try:
         el.click(timeout=3000, force=True)
+        return True
+    except Exception:
+        pass
+    try:
+        el.evaluate("""
+            e => {
+                const ev1 = new MouseEvent('mousedown', {bubbles:true, cancelable:true});
+                const ev2 = new MouseEvent('mouseup',   {bubbles:true, cancelable:true});
+                const ev3 = new MouseEvent('click',     {bubbles:true, cancelable:true});
+                e.dispatchEvent(ev1); e.dispatchEvent(ev2); e.dispatchEvent(ev3);
+            }
+        """)
         return True
     except Exception:
         pass
@@ -1296,9 +1332,11 @@ def main():
         log(f"[Text] description length: {len(values.get('event_description',''))}")
         log("[step 6] Product Analysis side panel → Analysis Summary per product")
         analysis_by_pid = collect_product_analysis(page, frame, products)
+        pa_ids = get_pa_code_to_id(page)
         for idx, p in enumerate(products[:3], start=1):
             pid = (p.get("id") or "").strip()
-            values[f"product_id_{idx}"]    = p.get("id","")
+            code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
+            values[f"product_id_{idx}"]    = pa_ids.get(code, "")
             values[f"product_desc_{idx}"]  = p.get("desc","")
             values[f"product_sn_{idx}"]    = p.get("sn","")
             values[f"product_lot_{idx}"]   = p.get("lot","")
@@ -1306,10 +1344,10 @@ def main():
         lines = []
         for p in products:
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
-            pid  = (p.get("id") or "").strip()
-            summary = analysis_by_pid.get(pid) or analysis_by_pid.get(code, "")
+            summary = analysis_by_pid.get(code, "")
             if summary:
-                lines.append(f"{pid or code} — {summary}")
+                data_id = pa_ids.get(code, "")
+                lines.append(f"{data_id or code} — {summary}")
         values["analysis_results"] = "\n\n".join(lines) if lines else values.get("analysis_results","")
         if len(products) > 3:
             extras = [f"{p['id']} — {p['desc']}" for p in products[3:]]
