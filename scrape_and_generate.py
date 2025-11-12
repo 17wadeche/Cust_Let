@@ -1690,7 +1690,9 @@ def _list_objects_options(fr):
     ul = _objects_dropdown_list(fr)
     if not ul.count():
         return []
-    labels = ul.locator(".//span[contains(@class,'th-hb-value')] | .//*[@role='option'] | .//a | .//li")
+    labels = ul.locator(
+        "xpath=.//span[contains(@class,'th-hb-value')] | .//*[@role='option'] | .//a | .//li"
+    )  
     out = []
     for i in range(min(labels.count(), 200)):
         el = labels.nth(i)
@@ -1764,11 +1766,39 @@ def set_search_scope(page, desired_labels=("Activities","Activity")) -> bool:
 def _find_scope_frame_for_objects(page):
     for fr in page.frames:
         try:
-            if _objects_dropdown_button(fr).count():
+            have = (
+                fr.locator("xpath=//*[normalize-space(.)='Search For:']").first.count() and
+                fr.locator("xpath=//*[normalize-space(.)='with:']").first.count() and
+                (fr.locator("text=Go").first.count() or fr.locator("xpath=//input[@value='Go']|//a[normalize-space(.)='Go']").first.count())
+            )
+            if have:
+                return fr
+        except Exception:
+            continue
+    for fr in page.frames:
+        try:
+            if _objects_dropdown_button(fr).count() or _objects_input(fr).count():
                 return fr
         except Exception:
             continue
     return page.main_frame
+def _current_scope_text(fr) -> str:
+    val = _read_objects_value(fr)
+    if val: return val
+    btn = _objects_dropdown_button(fr)
+    if btn.count():
+        try:
+            t = (btn.inner_text() or btn.get_attribute("title") or btn.get_attribute("aria-label") or "").strip()
+            if t: return t
+        except Exception: pass
+    try:
+        blk = fr.locator("xpath=//*[normalize-space(.)='Search For:']/following::*[1]").first
+        if blk.count():
+            t = (blk.inner_text() or blk.get_attribute("title") or blk.get_attribute("aria-label") or "").strip()
+            if t: return t
+    except Exception:
+        pass
+    return ""
 def set_search_scope_to_activities(page) -> bool:
     fr = _find_scope_frame_for_objects(page)
     if not fr:
@@ -1800,30 +1830,257 @@ def _submit_global_search(ctx, input_el):
     except Exception:
         pass
     return soft_click_go(ctx)
+def _find_global_search_input_in_frame(fr):
+    sels = [
+        "xpath=//input[contains(@id,'SearchValue') and contains(@class,'th-sif')]",
+        "xpath=//input[contains(@id,'SearchValue')]",
+        "xpath=//input[contains(@tempname,'search')]",
+        "css=input.th-sif",
+    ]
+    for sel in sels:
+        try:
+            loc = fr.locator(sel).first
+            if loc.count():
+                try:
+                    loc.wait_for(state="visible", timeout=1500)
+                except Exception:
+                    pass
+                return loc
+        except Exception:
+            pass
+    return None
+
+def _find_global_search_input_near_scope(page):
+    # Use the frame that contains the Objects control (header/global frame)
+    fr = _find_scope_frame_for_objects(page)
+    if fr:
+        loc = _find_global_search_input_in_frame(fr)
+        if loc:
+            log("[scope] Found global search input in SAME frame as Objects")
+            return loc, fr
+    # Fallback: anywhere, but avoid WorkAreaFrame1 (content) unless it also has Objects
+    for fr2 in page.frames:
+        try:
+            if (fr2.name or "") == "WorkAreaFrame1":
+                # skip the content frame unless it ALSO has the Objects control
+                if not _objects_dropdown_button(fr2).count():
+                    continue
+            loc = _find_global_search_input_in_frame(fr2)
+            if loc:
+                log("[scope] Found global search input (fallback)")
+                return loc, fr2
+        except Exception:
+            continue
+    return None, None
+
+def _objects_input(fr):
+    return fr.locator("xpath=//input[contains(@id,'_Objects') and contains(@class,'th-if') and @role='combobox']").first
+def _open_objects_popup(fr):
+    inp = _objects_input(fr)
+    if inp.count():
+        try:
+            inp.scroll_into_view_if_needed()
+            inp.click()
+            fr.wait_for_timeout(80)
+            inp.press("ArrowDown")   # opens the list in most builds
+            fr.wait_for_timeout(120)
+            return True
+        except Exception:
+            pass
+    return _click_objects_dropdown(fr)
+def _popup_options_any(fr):
+    candidates = []
+    ul = fr.locator("xpath=//ul[contains(@id,'_Objects_items') and (not(@style) or not(contains(@style,'display: none')))]").first
+    if ul.count():
+        items = ul.locator("xpath=.//li | .//a | .//span")
+        for i in range(min(items.count(), 200)):
+            el = items.nth(i)
+            try:
+                txt = (el.inner_text() or "").strip()
+            except Exception:
+                txt = (el.get_attribute("aria-label") or el.get_attribute("title") or "").strip()
+            if txt:
+                clicky = el.locator("xpath=ancestor-or-self::*[self::li or self::a][1]").first
+                candidates.append((clicky if clicky.count() else el, txt))
+    listbox = fr.locator("[role='listbox']").first
+    if listbox.count():
+        opts = listbox.locator("[role='option']")
+        for i in range(min(opts.count(), 200)):
+            el = opts.nth(i)
+            txt = (el.inner_text() or el.get_attribute("aria-label") or "").strip()
+            if txt:
+                candidates.append((el, txt))
+    thpop = fr.locator("xpath=//*[contains(@class,'th-ddlb') or contains(@class,'th-popup')][not(contains(@style,'display: none'))]").first
+    if thpop.count():
+        opts = thpop.locator("xpath=.//li | .//a | .//span")
+        for i in range(min(opts.count(), 200)):
+            el = opts.nth(i)
+            txt = (el.inner_text() or el.get_attribute("aria-label") or el.get_attribute("title") or "").strip()
+            if txt:
+                clicky = el.locator("xpath=ancestor-or-self::*[self::li or self::a][1]").first
+                candidates.append((clicky if clicky.count() else el, txt))
+
+    return candidates
+def _pick_popup_option_by_text(fr, *want_texts):
+    wants = [w.strip().lower() for w in want_texts if w]
+    if not wants:
+        wants = ["activities", "activity"]
+    _open_objects_popup(fr)
+    fr.wait_for_timeout(120)
+    options = _popup_options_any(fr)
+    if options:
+        log("[scope] Popup options: " + ", ".join(repr(t) for _, t in options[:30]))
+    def _match(txt):
+        low = (txt or "").lower().strip()
+        if any(low == w for w in wants): return True
+        if any(w in low for w in wants): return True
+        return "activit" in low
+    for el, txt in options:
+        if _match(txt):
+            try:
+                robust_click(el, fr)
+                fr.wait_for_timeout(120)
+                return True
+            except Exception:
+                pass
+    return False
+def _read_objects_value(fr) -> str:
+    inp = _objects_input(fr)
+    if not inp.count(): return ""
+    try:
+        return (inp.input_value() or "").strip()
+    except Exception:
+        try:
+            return (inp.get_attribute("value") or "").strip()
+        except Exception:
+            return ""
+def _direct_set_objects_value(fr, value: str) -> bool:
+    inp = _objects_input(fr)
+    if not inp.count():
+        return False
+    try:
+        fr.evaluate(
+            """
+            (id, val) => {
+              const el = document.getElementById(id);
+              if (!el) return false;
+              // Temporarily make it writable
+              const wasRO = el.hasAttribute('readonly');
+              if (wasRO) el.removeAttribute('readonly');
+              const old = el.value;
+              el.value = val;
+
+              // Fire native events
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+
+              // Try to call thtmlb hooks if present
+              try { if (window.thtmlbAutoSave) thtmlbAutoSave(el); } catch (e) {}
+              try { if (window.th_ddlb_onchange) th_ddlb_onchange(el); } catch (e) {}
+
+              // Blur/focus to commit
+              try { el.blur(); el.focus(); } catch (e) {}
+
+              if (wasRO) el.setAttribute('readonly','readonly');
+              return true;
+            }
+            """,
+            inp.get_attribute("id"),
+            value,
+        )
+        fr.wait_for_timeout(120)
+        return True
+    except Exception:
+        return False
+def force_scope_to_activities(page) -> bool:
+    fr = _find_scope_frame_for_objects(page)
+    if not fr:
+        log("[scope] header frame not found")
+        return False
+    cur = (_current_scope_text(fr) or "").lower()
+    if "activit" in cur:
+        log(f"[scope] already Activities: {cur!r}")
+        return True
+    if _pick_popup_option_by_text(fr, "Activities", "Activity"):
+        fr.wait_for_timeout(160)
+        cur = (_current_scope_text(fr) or "").lower()
+        if "activit" in cur:
+            log(f"[scope] selected via popup: {cur!r}")
+            return True
+    inp = _objects_input(fr)
+    if inp.count():
+        try:
+            inp.click()
+            fr.wait_for_timeout(60)
+            try: inp.press("Alt+ArrowDown")
+            except Exception: pass
+            inp.press("Control+A"); fr.wait_for_timeout(40)
+            inp.type("Activities", delay=15); fr.wait_for_timeout(120)
+            inp.press("Enter"); fr.wait_for_timeout(180)
+            cur = (_current_scope_text(fr) or "").lower()
+            if "activit" in cur:
+                log("[scope] selected via keyboard type+Enter")
+                return True
+        except Exception:
+            pass
+    if _direct_set_objects_value(fr, "Activities"):
+        fr.wait_for_timeout(160)
+        cur = (_current_scope_text(fr) or "").lower()
+        log(f"[scope] after direct-set, now={cur!r}")
+        if "activit" in cur:
+            return True
+    try:
+        fr.evaluate("""
+            (() => {
+              const el = document.querySelector("input[id*='_Objects'][role='combobox']") || document.querySelector("input[id*='_Objects']");
+              if (!el) return false;
+              const ev = new Event('change', {bubbles:true});
+              el.dispatchEvent(ev);
+              try { if (window.th_ddlb_onchange) th_ddlb_onchange(el); } catch(e){}
+              try { if (window.thtmlbAutoSave) thtmlbAutoSave(el); } catch(e){}
+              return true;
+            })();
+        """)
+        fr.wait_for_timeout(160)
+        cur = (_current_scope_text(fr) or "").lower()
+        if "activit" in cur:
+            log("[scope] selected via change hooks")
+            return True
+    except Exception:
+        pass
+    log("[scope] FAILED to set Activities (still showing %r)" % _current_scope_text(fr))
+    return False
 def search_activities_for_id(page, txid: str) -> bool:
-    if not set_search_scope(page, ("Activities","Activity")):
-        log("[search] WARNING: failed to set scope to Activities/Activity; continuing anyway.")
-    input_el, ctx = _find_global_search_input_anywhere(page)
+    fr = _find_scope_frame_for_objects(page)
+    if not fr:
+        log("[search] header frame not found")
+        return False
+    if not force_scope_to_activities(page):
+        log("[search] scope not Activities; aborting to avoid SR/PE results")
+        return False
+    input_el = _find_global_search_input_in_frame(fr)
     if not input_el:
-        log("[search] Global search input not found")
+        log("[search] header search input not found")
         return False
     try:
         input_el.click()
+        try: input_el.fill("")
+        except Exception: pass
+        input_el.type(str(txid), delay=18)
         try:
-            input_el.fill("")
-        except Exception:
-            pass
-        input_el.type(str(txid), delay=20)
-        try:
-            input_el.evaluate("el => { el.dispatchEvent(new Event('input',{bubbles:true})); }")
-        except Exception:
-            pass
-        _submit_global_search(ctx, input_el)
-        ctx.wait_for_load_state("networkidle")
-        ctx.wait_for_timeout(800)
+            input_el.evaluate("el => el.dispatchEvent(new Event('input',{bubbles:true}))")
+        except Exception: pass
+        if not soft_click_go(fr):
+            input_el.press("Enter")
+        try: fr.wait_for_load_state("networkidle")
+        except Exception: pass
+        fr.wait_for_timeout(800)
+        if "activit" not in (_current_scope_text(fr) or "").lower():
+            log("[search] scope reverted after submit; likely clicked content-frame Go. Aborting.")
+            return False
         return True
     except Exception as e:
-        log(f"[search] Error searching for {txid}: {e}")
+        log(f"[search] error: {e}")
         return False
 def read_analysis_summary_for_txid(page, txid: str) -> str:
     ok = search_activities_for_id(page, txid)
@@ -2048,24 +2305,6 @@ def main():
         if len(products) > 3:
             extras = [f"{p['id']} — {p['desc']}" for p in products[3:]]
             values.setdefault("product_extras", "\n".join(extras))
-        log("[step 7] Investigation side panel → Summary of Investigations per item")
-        if click_left_nav_investigation(page):
-            inv_items = list_side_nav_items(page, "Investigations")
-            inv_lines = []
-            for it in inv_items:
-                if not robust_click(it["el"], it["frame"]):
-                    continue
-                text = read_text_by_labels(page, [
-                    "Summary of Investigations",
-                    "Investigation Summary",
-                    "Analysis/Investigation Summary"
-                ])
-                if text:
-                    inv_lines.append(f"{it['text']} — {text}")
-            if inv_lines:
-                values.setdefault("investigation_summary", "\n\n".join(inv_lines))
-        else:
-            log("[Investigation] Left nav not found; skipping.")
         log("Collected fields:")
         log(json.dumps(values, indent=2))    
         out_name = cfg.get('output_name_pattern', 'Customer_Letter_{complaint_id}.docx').format(**values)
