@@ -1029,6 +1029,147 @@ def get_pa_code_to_id(page):
         return mapping
     log(f"[PA] detected {len(items)} anchors in Product Analysis section")
     return {(it["code"] or "").upper(): (it["data_id"] or "") for it in items if it["code"] and it["data_id"]}
+def click_associated_transactions_tab(page, root_frame):
+    # By label or the href you gave
+    return (
+        click_tab_by_text(page, root_frame, "Associated Transactions")
+        or click_tab_by_text(page, root_frame, "_ovviewset.do_0012")
+    )
+
+def _find_assoc_tx_frame(page):
+    # Any frame containing a th-clr grid with our table id pattern
+    cues = [
+        "xpath=//table[contains(@class,'th-clr-table') and starts-with(@id,'C') and contains(@id,'_Table')]",
+        "xpath=//div[contains(@id,'_Table_bottomDiv')]//table[contains(@class,'th-clr-table')]",
+    ]
+    for sel in cues:
+        fr = find_frame_with(page, sel, timeout_ms=6000)
+        if fr:
+            return fr
+    return None
+
+def _assoc_tx_tables(fr):
+    # Try to get header & body tables inside the same container; be forgiving about ids
+    container = fr.locator(
+        "xpath=//div[contains(@id,'_Table_bottomDiv')]/ancestor::div[contains(@id,'_Table')][1]"
+    ).first
+    if not container.count():
+        container = fr
+
+    header_tbl = container.locator(
+        "xpath=.//table[contains(@id,'_TableHeader') or contains(@id,'_Table_top') or contains(@id,'_TableHeader_top')]"
+    ).first
+    body_tbl = container.locator(
+        "xpath=.//table[contains(@class,'th-clr-table') and contains(@id,'_Table') and not(contains(@id,'Header'))]"
+    ).first
+    if not body_tbl.count():
+        # Sometimes the “header” id actually holds the body (seen in your screenshot)
+        body_tbl = container.locator(
+            "xpath=.//table[contains(@class,'th-clr-table') and (contains(@id,'_TableHeader') or contains(@id,'_Table'))]"
+        ).first
+    return header_tbl if header_tbl.count() else None, body_tbl if body_tbl.count() else None
+
+def _hdr_map_from_table(tbl):
+    # Read header cells from <thead> or the first row that uses ths
+    hmap = {}
+    if not tbl or not tbl.count():
+        return hmap
+    heads = tbl.locator("xpath=.//thead//th|.//thead//td")
+    if not heads.count():
+        heads = tbl.locator("xpath=(.//tr[.//th])[last()]//th | (.//tr[1]/*[self::th or self::td])")
+    for i in range(heads.count()):
+        t = clean(heads.nth(i).inner_text())
+        if t:
+            hmap[_norm_key(t)] = i
+    return hmap
+
+def _scroll_to_load_all(fr, target):
+    prev = -1
+    for _ in range(20):
+        rows = target.locator("xpath=.//tr[td]")
+        n = rows.count()
+        if n == prev:
+            break
+        prev = n
+        try:
+            fr.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+        except Exception:
+            pass
+        try:
+            fr.mouse.wheel(0, 1400)
+        except Exception:
+            pass
+        fr.wait_for_timeout(160)
+
+def _infer_indices_by_samples(body_tbl):
+    rows = body_tbl.locator("xpath=.//tr[td]")
+    sample = min(rows.count(), 10)
+    votes_id, votes_type, votes_status = {}, {}, {}
+    status_set = {"complete","submitted","closed","open","in progress","reopened"}
+    for i in range(sample):
+        cells = rows.nth(i).locator("xpath=.//th|.//td")
+        c = cells.count()
+        texts = [clean(cells.nth(j).inner_text()) for j in range(c)]
+        for j, txt in enumerate(texts):
+            if re.search(r"\b\d{6,}\b", txt):      # Transaction ID looks like a long number
+                votes_id[j] = votes_id.get(j, 0) + 1
+            if re.match(r"^(product analysis|investigation)\b", txt, re.I):
+                votes_type[j] = votes_type.get(j, 0) + 1
+            if txt.strip().lower() in status_set:
+                votes_status[j] = votes_status.get(j, 0) + 1
+    def _winner(d): 
+        return max(d, key=d.get) if d else None
+    return _winner(votes_id), _winner(votes_type), _winner(votes_status)
+def read_associated_transactions_complete(page, root_frame):
+    click_associated_transactions_tab(page, root_frame)
+    fr = _find_assoc_tx_frame(page)
+    if not fr:
+        log("[AssocTx] grid frame not found")
+        return {"product_analysis": [], "investigation": []}
+    header_tbl, body_tbl = _assoc_tx_tables(fr)
+    if not body_tbl:
+        log("[AssocTx] grid table not found")
+        return {"product_analysis": [], "investigation": []}
+    _scroll_to_load_all(fr, body_tbl)
+    hmap = _hdr_map_from_table(header_tbl or body_tbl)
+    idx_id     = hmap.get("transaction_id")
+    idx_type   = hmap.get("transaction_type")
+    idx_status = hmap.get("status")
+    if idx_id is None or idx_type is None or idx_status is None:
+        ii, it, is_ = _infer_indices_by_samples(body_tbl)
+        idx_id     = idx_id     if idx_id     is not None else ii
+        idx_type   = idx_type   if idx_type   is not None else it
+        idx_status = idx_status if idx_status is not None else is_
+    if idx_id is None or idx_type is None or idx_status is None:
+        log(f"[AssocTx] couldn’t determine columns (id={idx_id}, type={idx_type}, status={idx_status})")
+        return {"product_analysis": [], "investigation": []}
+    rows = body_tbl.locator("xpath=.//tr[td]")
+    n = rows.count()
+    pa, inv = [], []
+    for i in range(n):
+        r = rows.nth(i)
+        cells = r.locator("xpath=.//th|.//td")
+        count = cells.count()
+        if count <= max(idx_id, idx_type, idx_status):
+            continue
+        txid_txt  = clean(cells.nth(idx_id).inner_text())
+        type_txt  = clean(cells.nth(idx_type).inner_text())
+        status_tx = clean(cells.nth(idx_status).inner_text())
+        m = re.search(r"\b\d{5,}\b", txid_txt or "")
+        txid = m.group(0) if m else ""
+        ttype = (type_txt or "").strip().lower()
+        stat  = (status_tx or "").strip().lower()
+        if not (txid and stat == "complete"):
+            continue
+        if ttype.startswith("product analysis"):
+            pa.append(txid)
+        elif ttype.startswith("investigation"):
+            inv.append(txid)
+    pa = list(dict.fromkeys(pa))
+    inv = list(dict.fromkeys(inv))
+    log(f"[AssocTx] Product Analysis (Complete): {pa}")
+    log(f"[AssocTx] Investigations (Complete): {inv}")
+    return {"product_analysis": pa, "investigation": inv}
 def summary_has_product_id(text: str, product_id: str) -> bool:
     if not text or not product_id:
         return False
@@ -1503,6 +1644,10 @@ def main():
         if desc:
             values["event_description"] = desc
         log(f"[Text] description length: {len(values.get('event_description',''))}")
+        log("[step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs")
+        assoc = read_associated_transactions_complete(page, frame)
+        print(f"[AssociatedTx] Product Analysis (Complete): {assoc['product_analysis']}")
+        print(f"[AssociatedTx] Investigations (Complete): {assoc['investigation']}")
         log("[step 6] Product Analysis side panel → Analysis Summary per product")
         analysis_by_pid = collect_product_analysis(page, frame, products)
         pa_ids = get_pa_code_to_id(page)
@@ -1514,6 +1659,8 @@ def main():
             values[f"product_sn_{idx}"]    = p.get("sn","")
             values[f"product_lot_{idx}"]   = p.get("lot","")
             values[f"serial_or_lot_{idx}"] = " / ".join([s for s in [p.get('sn',''), p.get('lot','')] if s])
+            values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
+            values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
         lines = []
         for p in products:
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
