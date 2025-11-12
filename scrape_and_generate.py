@@ -537,18 +537,28 @@ def _expand_if_truncated(frame):
 def read_event_description(page, root_frame):
     click_tab_by_text(page, root_frame, "Text Info") or \
     click_tab_by_text(page, root_frame, "_ovviewset.do_0006")
-    try:
-        root_frame.wait_for_selector("xpath=//td[starts-with(@id,'GUIDE-TextInfoTable-')]", timeout=8000)
-    except Exception:
-        pass
-    fr, tbl = _find_latest_text_table(page)
-    if not (fr and tbl and tbl.count()):
-        return ""
-    _expand_if_truncated(fr)
+    frames = active_content_frames(page, {"content_frame_name_regex": "WorkAreaFrame1"})
+    tbl = None
+    chosen_frame = None
+    for fr in frames:
+        try:
+            fr.wait_for_selector("xpath=//td[starts-with(@id,'GUIDE-TextInfoTable-')]", timeout=3000)
+            candidate = _find_latest_text_table_in(fr)
+            if candidate:
+                tbl, chosen_frame = candidate, fr
+                break
+        except Exception:
+            continue
+    if not (tbl and chosen_frame):
+        fr, tbl_fallback = _find_latest_text_table(page)
+        if not (fr and tbl_fallback and tbl_fallback.count()):
+            return ""
+        chosen_frame, tbl = fr, tbl_fallback
+    _expand_if_truncated_strong(chosen_frame)
     want_types = [
         "Incident description", "Incident description / Reason for report",
         "Reason for report", "Description of Event", "Event Description",
-        "Narrative", "HCP Narrative"
+        "Narrative", "HCP Narrative", "Event narrative", "Incident Narrative"
     ]
     row = None
     for t in want_types:
@@ -558,7 +568,7 @@ def read_event_description(page, root_frame):
         if cand.count():
             row = cand
             break
-    if not row or not row.count():
+    if not (row and row.count()):
         for t in want_types:
             low = t.lower()
             cand = tbl.locator(
@@ -568,7 +578,7 @@ def read_event_description(page, root_frame):
             if cand.count():
                 row = cand
                 break
-    if not row or not row.count():
+    if not (row and row.count()):
         row = tbl.locator("xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]]").first
         if not row.count():
             return ""
@@ -577,7 +587,7 @@ def read_event_description(page, root_frame):
     ).first
     if not text_td.count():
         return ""
-    raw = text_td.evaluate("el => el.textContent || ''")
+    raw = text_td.evaluate("el => el.textContent || ''") or ""
     para = re.sub(r'\r?\n\s*\r?\n+', '\n\n', raw)
     para = re.sub(r'[ \t\xa0]+', ' ', para)
     para = re.sub(r'\s*\n\s*', '\n', para).strip()
@@ -730,7 +740,7 @@ def collect_product_analysis(page, root_frame, known_products):
             continue
         summaries = []
         for link in candidates:
-            prev_sig = _textinfo_signature(page)           # snapshot current content
+            prev_sig = _textinfo_signature(page)
             if not robust_click(link["el"], link["frame"]):
                 continue
             changed = False
@@ -751,8 +761,8 @@ def collect_product_analysis(page, root_frame, known_products):
             txt = read_analysis_summary_for_current_pli(page)
             if txt:
                 summaries.append(txt)
-                results[pid or code] = "\n\n".join(summaries) if summaries else default_msg
-            return results
+        results[pid or code] = "\n\n".join(summaries) if summaries else default_msg
+    return results
 def robust_click(el, frame, timeout_ms=8000):
     try:
         el.scroll_into_view_if_needed(timeout=2000)
@@ -787,6 +797,42 @@ def expand_full_text_if_collapsed(frame):
 def extract_product_code(desc: str) -> str:
     m = re.search(r'[A-Z0-9_]+', (desc or '').upper())
     return m.group(0) if m else ''
+def active_content_frames(page, cfg):
+    name_rx = cfg.get('content_frame_name_regex') or cfg.get('frame_name_regex')
+    url_rx  = cfg.get('frame_url_regex')
+    frames = []
+    for fr in page.frames:
+        try:
+            nm, url = (fr.name or ""), (fr.url or "")
+        except Exception:
+            nm, url = "", ""
+        if (name_rx and re.search(name_rx, nm, re.I)) or (url_rx and re.search(url_rx, url, re.I)):
+            frames.append(fr)
+    if frames:
+        return frames
+    for fr in page.frames:
+        if (fr.name or "") == "WorkAreaFrame1":
+            return [fr]
+    return list(page.frames)
+def _find_latest_text_table_in(fr):
+    scope = fr.locator("xpath=//div[contains(@class,'th-clr-cnt-bottom')]")
+    scope = scope if scope.count() else fr
+    tds = scope.locator("xpath=.//table[.//td[starts-with(@id,'GUIDE-TextInfoTable-')]]")
+    return tds.nth(tds.count()-1) if tds.count() else None
+def _expand_if_truncated_strong(frame):
+    link = frame.locator("xpath=//a[contains(@id,'text_table') and contains(@id,'lines')]").first
+    if link.count():
+        try:
+            robust_click(link, frame)
+        except Exception:
+            try:
+                link.evaluate("e => e.click()")
+            except Exception:
+                pass
+        try:
+            frame.wait_for_timeout(200)
+        except Exception:
+            pass
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -804,8 +850,15 @@ def main():
         page.goto(cfg['crm_url'], wait_until="load")
         sso_wait = cfg.get('sso_pause_seconds', 0)
         if sso_wait > 0:
-            print(f"Waiting up to {sso_wait}s for SSO/MFA...")
-            page.wait_for_timeout(sso_wait * 1000)
+            s = cfg.get('search', {})
+            probe_selectors = [s.get('selector')] + (s.get('fallback_selectors', []) or [])
+            probe_selectors = [sel for sel in probe_selectors if sel] or ["xpath=//input[contains(@id,'SearchValue')]"]
+            try:
+                wait_find_in_any_frame(page, probe_selectors, timeout_ms=3000)
+                print("[SSO] Search is already available; skipping SSO wait.")
+            except Exception:
+                print(f"[SSO] Search not ready; allowing up to {sso_wait}s for SSO/MFA…")
+                page.wait_for_timeout(sso_wait * 1000)
         frame = find_app_frame(
             page,
             frame_name_regex=cfg.get('frame_name_regex'),
@@ -911,6 +964,12 @@ def main():
         event_date_text = get_event_date(page)
         if event_date_text:
             values['event_date'] = event_date_text
+        desc = read_event_description(page, frame)   # this opens Text Info tab
+        if not desc:                                 # if first try races, wait and try again once
+            wait_for_textinfo_change(page, timeout=8000)
+            desc = read_event_description(page, frame)
+        if desc:
+            values["event_description"] = desc
         ext = read_external_refs(page, frame)
         if ext.get("rb_reference"):
             values["rb_reference"] = ext["rb_reference"]
@@ -918,13 +977,6 @@ def main():
             values["report_number"] = ext["report_number"]
         products = read_all_products(page, frame)
         analysis_by_pid = collect_product_analysis(page, frame, products)
-        prev_sig = _textinfo_signature(page)
-        desc = read_event_description(page, frame)   # this opens Text Info tab
-        if not desc:                                 # if first try races, wait and try again once
-            wait_for_textinfo_change(page, prev_sig, timeout=8000)
-            desc = read_event_description(page, frame)
-        if desc:
-            values["event_description"] = desc
         for idx, p in enumerate(products[:3], start=1):
             pid = (p.get("id") or "").strip()
             values[f"product_id_{idx}"]    = p.get("id","")
