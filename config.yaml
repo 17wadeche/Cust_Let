@@ -1,0 +1,79 @@
+
+crm_url: "https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/"
+headless: false              # give yourself time to login/SSO if needed
+header_frame_name_regex: "HeaderFrame"
+content_frame_name_regex: "WorkAreaFrame1"
+sso_pause_seconds: 30
+search:
+  selector: "xpath=//input[contains(@id,'SearchValue')]"
+  fallback_selectors:
+    - "xpath=//input[@id='C12_W37_V38_SearchValue']"
+    - "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]"
+    - "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]"
+    - "xpath=//*[normalize-space(.)='with:']/following::input[1]"
+    - "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"
+  clear: true
+  press_key: "Enter"
+  submit_selector: "xpath=(//a[contains(@onclick,':Go') or contains(@href,':Go')] | //a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]"
+  wait_for: "xpath=//span[contains(@class,'title')][contains(normalize-space(.),'Product Line Items')]"
+  wait_timeout: 60000
+template_path: "./customer_letter_template.docx"
+output_dir: "./out"
+output_name_pattern: "Customer_Letter_{complaint_id}.docx"
+defaults:
+  closing_contact_name: "Tracy Landers"
+  closing_contact_title: "Sr MDR/Vigilance Manager | Customer Quality"
+field_map:
+  ir_with_address: ["Customer Address", "IR Address", "Address"]
+  report_number: ["MPXR Report #", "MPRR Report #", "Report #"]
+  rb_reference: ["RB Reference #", "RB #"]
+  event_date: ["Event date", "Event Date"]
+  ir_name: ["Recipient Name", "Contact", "Attn", "IR name"]
+  event_description: ["Event Description", "Description of Event"]
+  analysis_results: ["Analysis Results", "Analysis Result"]
+  investigation_summary: ["Investigation Summary", "Investigation Result"]
+  product_id_1:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 1
+    col: 1
+  product_desc_1:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 1
+    col: 2
+  serial_or_lot_1:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 1
+    col: 3
+  product_id_2:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 2
+    col: 1
+  product_desc_2:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 2
+    col: 2
+  serial_or_lot_2:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 2
+    col: 3
+  product_id_3:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 3
+    col: 1
+  product_desc_3:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 3
+    col: 2
+  serial_or_lot_3:
+    type: grid
+    grid_xpath: "//table[contains(@summary,'Product') or contains(@aria-label,'Product')]"
+    row: 3
+    col: 3

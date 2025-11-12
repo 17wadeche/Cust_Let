@@ -1,0 +1,10 @@
+[0] name='' url='https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/default.htm'
+  (error collecting candidates: Event loop is closed! Is Playwright already stopped?)
+[1] name='CRMApplicationFrame' url='https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFQbkJFUkg5Q3Y2UWpkMW1NZEtRPT0=)/bc/bsp/sap/crm_ui_frame/main.htm?sap-client=010&sap-language=EN&sap-domainRelax=min&saprole=ZCRM_GCH'
+  (error collecting candidates: Event loop is closed! Is Playwright already stopped?)
+[2] name='HeaderFrame' url='https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crmcmp_hdr/bspwdapplication.do?saprole=ZCRM_GCH'
+  (error collecting candidates: Event loop is closed! Is Playwright already stopped?)
+[3] name='WorkAreaFrame1' url='https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFQbkJFUkg5Q3Y2UWpkMW1NZEtRPT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min'
+  (error collecting candidates: Event loop is closed! Is Playwright already stopped?)
+[4] name='WorkAreaFrame2' url='https://crm.medtronic.com/sap(====)/bc/bsp/sap/crm_ui_frame/blank.htm'
+  (error collecting candidates: Event loop is closed! Is Playwright already stopped?)
