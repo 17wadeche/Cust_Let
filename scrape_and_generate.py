@@ -487,15 +487,21 @@ def read_all_products(page, root_frame):
             out = []
             for i in range(n):
                 row = rows.nth(i)
-                prod = row.locator(
+                prod_cell = row.locator(
                     "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]"
                 ).first
-                desc = row.locator(
+                desc_cell = row.locator(
                     "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Description')]"
                 ).first
-                pid = clean(prod.inner_text()) if prod.count() else ""
-                pdesc = clean(desc.inner_text()) if desc.count() else ""
-                pcode = extract_product_code(pdesc)
+                pid = ""
+                if prod_cell.count():
+                    ordered_link = prod_cell.locator("xpath=.//a[contains(@id,'ordered_prod')]").first
+                    if ordered_link.count():
+                        pid = _get_attr_or_text(ordered_link)
+                    else:
+                        pid = ""
+                pdesc = clean(desc_cell.inner_text()) if desc_cell.count() else ""
+                pcode = extract_product_code(pdesc) or pid
                 sn_candidates = [
                     "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN')]",
                     "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'s/n')]",
@@ -522,7 +528,7 @@ def read_all_products(page, root_frame):
                 if pid or pdesc or sn_val or lot_val:
                     out.append({"id": pid, "desc": pdesc, "code": pcode, "sn": sn_val, "lot": lot_val})
             if out:
-                return out  # Successfully parsed GUIDE table; we're done.
+                return out  # Done with GUIDE table
     fr = find_frame_with(page, "xpath=//*[contains(@id,'btadmini_table')]")
     if not fr:
         return []
@@ -534,18 +540,7 @@ def read_all_products(page, root_frame):
     for i in range(n):
         row = rows.nth(i)
         ordered_link = row.locator("xpath=.//a[contains(@id,'ordered_prod')]").first
-        pid = ""
-        if ordered_link.count():
-            try:
-                pid = (
-                    ordered_link.get_attribute("title")
-                    or ordered_link.get_attribute("aria-label")
-                    or ordered_link.inner_text()
-                    or ""
-                )
-                pid = clean(pid)
-            except Exception:
-                pid = ""
+        pid = _get_attr_or_text(ordered_link) if ordered_link.count() else ""
         pdesc = ""
         try:
             if ordered_link.count():
