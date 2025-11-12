@@ -855,6 +855,33 @@ def read_analysis_summary_for_current_pli(page):
         full = ""
     text = full.strip() if full.strip() else _safe_td_text(td)
     return text
+def wait_for_search_with_retries(page, s, *, max_attempts=8, probe_period_ms=2000,
+                                 reload_between_attempts=True, total_timeout_ms=240000):
+    start = time.time()
+    probe_selectors = [s.get('selector')] + (s.get('fallback_selectors', []) or [])
+    probe_selectors = [sel for sel in probe_selectors if sel] or ["xpath=//input[contains(@id,'SearchValue')]"]
+    def _try_once():
+        try:
+            loc, ctx, used = wait_find_in_any_frame(page, probe_selectors, timeout_ms=2500, poll_ms=150)
+            return (loc, ctx, used)
+        except Exception:
+            return (None, None, None)
+    attempt = 0
+    while attempt < max_attempts and (time.time() - start) * 1000 < total_timeout_ms:
+        attempt += 1
+        log(f"[SSO] probe attempt {attempt}/{max_attempts}")
+        loc, ctx, used = _try_once()
+        if loc:
+            log(f"[SSO] search ready via {used}")
+            return (loc, ctx, used)
+        page.wait_for_timeout(probe_period_ms)
+        if reload_between_attempts:
+            try:
+                log("[SSO] reloading page to advance SSO…")
+                page.reload(wait_until="load")
+            except Exception:
+                pass
+    raise PWTimeout("[SSO] Search not available after retries")
 def collect_product_analysis(page, root_frame, known_products):
     if not click_left_nav_product_analysis(page):
         default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
@@ -866,34 +893,32 @@ def collect_product_analysis(page, root_frame, known_products):
     _ensure_section_expanded(page, "Product Analysis")
     items = _enumerate_pa_items(nav_fr)
     summaries_by_text = {}
-    for idx, it in enumerate(items):
+    for it in items:
         _ensure_section_expanded(page, "Product Analysis")
-        anchors = _product_analysis_anchor_locator(nav_fr)
-        target = None
-        if it["data_id"]:
-            target = anchors.filter(has=nav_fr.locator(f"[data-trans-id='{it['data_id']}']")).first
-            if not target.count():
-                target = anchors.nth(it["i"])
-        else:
-            target = anchors.nth(it["i"])
+        target = _pa_anchor_by_data_id(nav_fr, it["data_id"])
+        if not (target and target.count()):
+            anchors_now = _product_analysis_anchor_locator(nav_fr)
+            target = anchors_now.nth(it["i"]) if anchors_now.count() > it["i"] else None
         if not target or not target.count():
             continue
         prev_sig = _textinfo_signature(page)
-        robust_click(target, nav_fr)
+        if not robust_click_plus(target, nav_fr):
+            continue
         changed = False
         try:
             nav_fr.wait_for_selector(
                 "xpath=//div[contains(@class,'th-clr-cnt-bottom')]"
                 "//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]",
-                timeout=6000
+                timeout=7000
             )
             changed = True
         except Exception:
             pass
         if not changed:
-            changed = wait_for_textinfo_change(page, prev_sig, timeout=9000)
+            changed = wait_for_textinfo_change(page, prev_sig, timeout=10000)
         if not changed:
-            nav_fr.wait_for_timeout(300)
+            nav_fr.wait_for_timeout(350)
+
         txt = read_analysis_summary_for_current_pli(page).strip()
         if txt:
             summaries_by_text[it["text"]] = txt
@@ -1052,6 +1077,40 @@ def _safe_text(node):
     except Exception:
         raw = ""
     return _normalize_text(raw)
+def _pa_anchor_by_data_id(fr, data_id: str):
+    if not data_id:
+        return None
+    selector = (
+        "xpath=//div[contains(@class,'left-nav')]"
+        "//div[contains(@class,'ProductAnalysis')]/following-sibling::div[contains(@class,'clicker')][1]"
+        "/following-sibling::div[contains(@class,'data-wrapper')][1]"
+        f"//a[contains(@class,'GUIDE-sideNav') and @data-trans-id='{data_id}']"
+    )
+    loc = fr.locator(selector).first
+    return loc if loc.count() else None
+def robust_click_plus(el, frame):
+    try:
+        el.scroll_into_view_if_needed(timeout=1500)
+    except Exception:
+        pass
+    try:
+        el.click(timeout=3000, force=True)
+        return True
+    except Exception:
+        pass
+    try:
+        el.evaluate("e => { e.scrollIntoView({block:'center'}); e.click(); }")
+        return True
+    except Exception:
+        pass
+    try:
+        box = el.bounding_box()
+        if box:
+            frame.mouse.click(box["x"] + min(5, box["width"]/2), box["y"] + min(5, box["height"]/2))
+            return True
+    except Exception:
+        pass
+    return False
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -1071,14 +1130,22 @@ def main():
         sso_wait = cfg.get('sso_pause_seconds', 0)
         if sso_wait > 0:
             s = cfg.get('search', {})
-            probe_selectors = [s.get('selector')] + (s.get('fallback_selectors', []) or [])
-            probe_selectors = [sel for sel in probe_selectors if sel] or ["xpath=//input[contains(@id,'SearchValue')]"]
             try:
-                wait_find_in_any_frame(page, probe_selectors, timeout_ms=3000)
+                wait_find_in_any_frame(page, [s.get('selector')] + (s.get('fallback_selectors', []) or []),
+                                    timeout_ms=2500, poll_ms=150)
                 print("[SSO] Search is already available; skipping SSO wait.")
             except Exception:
-                print(f"[SSO] Search not ready; allowing up to {sso_wait}s for SSO/MFA…")
-                page.wait_for_timeout(sso_wait * 1000)
+                print(f"[SSO] Search not ready; running extended SSO retries (up to ~{cfg.get('sso_total_timeout_ms', 240000)//1000}s)…")
+                try:
+                    wait_for_search_with_retries(
+                        page, s,
+                        max_attempts=cfg.get('sso_max_attempts', 8),
+                        probe_period_ms=cfg.get('sso_probe_period_ms', 2000),
+                        reload_between_attempts=cfg.get('sso_reload_between_attempts', True),
+                        total_timeout_ms=cfg.get('sso_total_timeout_ms', 240000),
+                    )
+                except Exception:
+                    page.wait_for_timeout(sso_wait * 1000)
         frame = find_app_frame(
             page,
             frame_name_regex=cfg.get('frame_name_regex'),
