@@ -1672,6 +1672,113 @@ def robust_click_plus(el, frame):
     except Exception:
         pass
     return False
+def _objects_dropdown_button(fr):
+    return fr.locator("xpath=//a[contains(@id,'_Objects-btn') and contains(@class,'th-ip-h')]").first
+def _objects_dropdown_list(fr):
+    return fr.locator("xpath=//ul[contains(@id,'_Objects_items')]").first
+def _click_objects_dropdown(fr):
+    btn = _objects_dropdown_button(fr)
+    if not btn.count():
+        return False
+    try:
+        robust_click(btn, fr)
+        fr.wait_for_timeout(150)
+        return True
+    except Exception:
+        return False
+def _pick_dropdown_option(fr, visible_text: str) -> bool:
+    ul = _objects_dropdown_list(fr)
+    if not ul.count():
+        return False
+    opt = ul.locator("xpath=.//span[contains(@class,'th-hb-value') "
+                     f"and normalize-space(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'))="
+                     f"'{visible_text.lower()}']").first
+    if not opt.count():
+        opt = ul.locator("xpath=.//span[contains(@class,'th-hb-value') "
+                         f"and contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+                         f" '{visible_text.lower()}')]").first
+    if opt.count():
+        try:
+            robust_click(opt, fr)
+            fr.wait_for_timeout(150)
+            return True
+        except Exception:
+            pass
+    return False
+def _find_scope_frame_for_objects(page):
+    for fr in page.frames:
+        try:
+            if _objects_dropdown_button(fr).count():
+                return fr
+        except Exception:
+            continue
+    return page.main_frame
+def set_search_scope_to_activities(page) -> bool:
+    fr = _find_scope_frame_for_objects(page)
+    if not fr:
+        log("[scope] Could not find frame for Objects dropdown")
+        return False
+    if not _click_objects_dropdown(fr):
+        log("[scope] Could not open Objects dropdown")
+        return False
+    picked = _pick_dropdown_option(fr, "Activities")
+    log(f"[scope] Set scope to Activities: {picked}")
+    return picked
+def _find_global_search_input_anywhere(page):
+    selectors = [
+        "xpath=//input[contains(@id,'SearchValue') and contains(@class,'th-sif')]",
+        "xpath=//input[contains(@id,'SearchValue')]",
+        "xpath=//input[contains(@tempname,'search')]",
+        "css=input.th-sif"
+    ]
+    try:
+        loc, ctx, used = wait_find_in_any_frame(page, selectors, timeout_ms=7000, poll_ms=150)
+        log(f"[scope] Found global search input via: {used}")
+        return loc, ctx
+    except Exception:
+        return None, None
+def _submit_global_search(ctx, input_el):
+    try:
+        input_el.press("Enter")
+        return True
+    except Exception:
+        pass
+    return soft_click_go(ctx)
+def search_activities_for_id(page, txid: str) -> bool:
+    if not set_search_scope_to_activities(page):
+        log("[search] WARNING: failed to set scope to Activities; continuing anyway.")
+    input_el, ctx = _find_global_search_input_anywhere(page)
+    if not input_el:
+        log("[search] Global search input not found")
+        return False
+    try:
+        input_el.click()
+        try:
+            input_el.fill("")
+        except Exception:
+            pass
+        input_el.type(str(txid), delay=20)
+        try:
+            input_el.evaluate("el => { el.dispatchEvent(new Event('input',{bubbles:true})); }")
+        except Exception:
+            pass
+        _submit_global_search(ctx, input_el)
+        ctx.wait_for_load_state("networkidle")
+        ctx.wait_for_timeout(800)
+        return True
+    except Exception as e:
+        log(f"[search] Error searching for {txid}: {e}")
+        return False
+def read_analysis_summary_for_txid(page, txid: str) -> str:
+    ok = search_activities_for_id(page, txid)
+    if not ok:
+        return ""
+    click_tab_by_text(page, page.main_frame, "Text Info") or click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
+    txt = read_analysis_summary_for_current_pli(page)
+    if not txt:
+        page.wait_for_timeout(500)
+        txt = read_analysis_summary_for_current_pli(page)
+    return (txt or "").strip()
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -1859,6 +1966,20 @@ def main():
         assoc = read_associated_transactions_complete(page, frame)
         print(f"[AssociatedTx] Product Analysis (Complete): {assoc['product_analysis']}")
         print(f"[AssociatedTx] Investigations (Complete): {assoc['investigation']}")
+        pa_ids_raw = values.get("assoc_tx_product_analysis_ids", "") or ", ".join(assoc.get("product_analysis", []))
+        pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
+        pa_summary_lines = []
+        for k, txid in enumerate(pa_ids, start=1):
+            log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
+            summary = read_analysis_summary_for_txid(page, txid)
+            if summary:
+                log(f"[PA-SUMMARY] {txid}: length={len(summary)}")
+                pa_summary_lines.append(f"{txid}\n{summary}")
+            else:
+                log(f"[PA-SUMMARY] {txid}: (no Analysis Summary found)")
+                pa_summary_lines.append(f"{txid}\n(No Analysis Summary found)")
+        if pa_summary_lines:
+            values["analysis_results"] = "\n\n".join(pa_summary_lines)
         for idx, p in enumerate(products[:3], start=1):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"] = (p.get("id") or code)
