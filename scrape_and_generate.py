@@ -132,24 +132,21 @@ def _build_alias_mapping(mapping: dict) -> dict:
     out.update({k: v for k, v in aliases.items() if v})
     return out
 def _split_tolerant(label: str) -> str:
+    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'
     label = re.sub(r'\s+', ' ', label.strip())
     parts = []
-    gap = (
-        r'(?:\s*</w:t>\s*</w:r>\s*'
-        r'<w:r[^>]*>\s*(?:<w:rPr>.*?</w:rPr>\s*)?<w:t[^>]*>\s*)?'
-    )
     for ch in label:
-        parts.append(r'\s+' if ch == ' ' else re.escape(ch))
-        parts.append(gap)
+        if ch == ' ':
+            parts.append(r'\s+')
+        else:
+            parts.append(re.escape(ch))
+        parts.append(tag_gap)        # <-- allow unlimited tags between characters
     return ''.join(parts)
 def _patterns_for_key(human_label: str):
-    gap = (
-        r'(?:\s*</w:t>\s*</w:r>\s*'
-        r'<w:r[^>]*>\s*(?:<w:rPr>.*?</w:rPr>\s*)?<w:t[^>]*>\s*)?'
-    )
-    inner = _split_tolerant(human_label)  
-    square = re.compile(r'\[\[\s*' + gap + inner + r'\s*' + gap + r'\]\]', re.I)
-    curly  = re.compile(r'\{\{\s*' + gap + inner + r'\s*' + gap + r'\}\}', re.I)
+    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'     # any intervening tags/formatting
+    inner   = _split_tolerant(human_label)
+    square = re.compile(r'\[\[\s*' + tag_gap + inner + r'\s*' + tag_gap + r'\]\]', re.I)
+    curly  = re.compile(r'\{\{\s*' + tag_gap + inner + r'\s*' + tag_gap + r'\}\}', re.I)
     return square, curly
 def _xml_replace_all(xml: str, mapping: dict) -> str:
     def _quick(m):
