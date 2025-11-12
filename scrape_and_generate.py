@@ -565,7 +565,6 @@ def read_event_description(page, root_frame):
         if not (fr and tbl_fallback and tbl_fallback.count()):
             return ""
         chosen_frame, tbl = fr, tbl_fallback
-    _expand_if_truncated_strong(chosen_frame)
     want_types = [
         "Incident description", "Incident description / Reason for report",
         "Reason for report", "Description of Event", "Event Description",
@@ -592,17 +591,22 @@ def read_event_description(page, root_frame):
     if not (row and row.count()):
         row = tbl.locator("xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]]").first
         if not row.count():
+            log("[Text] No row with -Text found")
             return ""
     text_td = row.locator(
         "xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text') and not(contains(@id,'-TextType'))]"
     ).first
     if not text_td.count():
+        log("[Text] No -Text cell present in row")
         return ""
-    raw = text_td.evaluate("el => el.textContent || ''") or ""
-    para = re.sub(r'\r?\n\s*\r?\n+', '\n\n', raw)
-    para = re.sub(r'[ \t\xa0]+', ' ', para)
-    para = re.sub(r'\s*\n\s*', '\n', para).strip()
-    return para
+    _suppress_clicks_enable(chosen_frame)
+    try:
+        desc = _safe_td_text(text_td)
+    finally:
+        _suppress_clicks_disable(chosen_frame)
+
+    log(f"[Text] Event description read from TD (no click), length={len(desc)}")
+    return desc
 def click_left_nav_product_analysis(page):
     candidates = [
         "xpath=//div[contains(@class,'left-nav')]//div[normalize-space(.)='ProductAnalysis']",
@@ -702,7 +706,6 @@ def read_text_by_labels(page, wanted_labels):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
         return ""
-    _expand_if_truncated(fr)
     row = None
     for t in wanted_labels:
         cand = tbl.locator(
@@ -715,7 +718,8 @@ def read_text_by_labels(page, wanted_labels):
         for t in wanted_labels:
             low = t.lower()
             cand = tbl.locator(
-                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '" + low + "')]]"
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType') "
+                f"and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
             ).first
             if cand.count():
                 row = cand
@@ -727,11 +731,12 @@ def read_text_by_labels(page, wanted_labels):
     td = row.locator("xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]").first
     if not td.count():
         return ""
-    raw = td.evaluate("el => el.textContent || ''") or ""
-    text = re.sub(r'\\r?\\n\\s*\\r?\\n+', '\\n\\n', raw)
-    text = re.sub(r'[ \\t\\xa0]+', ' ', text)
-    text = re.sub(r'\\s*\\n\\s*', '\\n', text).strip()
-    return text
+    _suppress_clicks_enable(fr)
+    try:
+        txt = _safe_td_text(td)
+    finally:
+        _suppress_clicks_disable(fr)
+    return txt
 def read_analysis_summary_for_current_pli(page):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
@@ -908,6 +913,72 @@ def _expand_if_truncated_strong(frame):
             frame.wait_for_timeout(200)
         except Exception:
             pass
+def _safe_text(node):
+    if not node or not node.count():
+        return ""
+    raw = node.evaluate("n => (n.textContent || '')") or ""
+    raw = raw.replace("\xa0", " ")                          # &nbsp;
+    raw = re.sub(r'\r?\n\s*\r?\n+', '\n\n', raw)
+    raw = re.sub(r'[ \t]+', ' ', raw)
+    raw = re.sub(r'\s*\n\s*', '\n', raw).strip()
+    return raw
+def _suppress_clicks_enable(frame):
+    try:
+        frame.evaluate("""
+            window.__mdt_suppress = e => { e.stopPropagation(); e.preventDefault(); };
+            document.addEventListener('mousedown', window.__mdt_suppress, true);
+            document.addEventListener('click', window.__mdt_suppress, true);
+            document.addEventListener('mouseup', window.__mdt_suppress, true);
+        """)
+    except Exception:
+        pass
+def _suppress_clicks_disable(frame):
+    try:
+        frame.evaluate("""
+            if (window.__mdt_suppress) {
+                document.removeEventListener('mousedown', window.__mdt_suppress, true);
+                document.removeEventListener('click', window.__mdt_suppress, true);
+                document.removeEventListener('mouseup', window.__mdt_suppress, true);
+                window.__mdt_suppress = null;
+            }
+        """)
+    except Exception:
+        pass
+def _normalize_text(s: str) -> str:
+    s = (s or "").replace("\xa0", " ")
+    s = re.sub(r'\r?\n\s*\r?\n+', '\n\n', s)
+    s = re.sub(r'[ \t]+', ' ', s)
+    s = re.sub(r'\s*\n\s*', '\n', s).strip()
+    return s
+def _safe_td_text(td):
+    if not td or not td.count():
+        return ""
+    try:
+        raw = td.evaluate("""
+            (node) => {
+                // prefer the expander link’s attributes (full content)
+                const a = node.querySelector("a[id*='text_table'][id*='lines']");
+                if (a) {
+                    const t = a.getAttribute('title') || a.getAttribute('aria-label');
+                    if (t && t.trim()) return t;
+                }
+                return node.textContent || '';
+            }
+        """) or ""
+    except Exception:
+        try:
+            raw = td.evaluate("n => n.textContent || ''") or ""
+        except Exception:
+            raw = ""
+    return _normalize_text(raw)
+def _safe_text(node):
+    if not node or not node.count():
+        return ""
+    try:
+        raw = node.evaluate("n => n.textContent || ''") or ""
+    except Exception:
+        raw = ""
+    return _normalize_text(raw)
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -1127,6 +1198,6 @@ def main():
         out_path = out_dir / out_name
         fill_docx(str(template_path), str(out_path), values)
         log(f"Generated: {out_path}")
-        #browser.close()
+        browser.close()
 if __name__ == "__main__":
     main()
