@@ -103,21 +103,16 @@ def wait_find_in_any_frame(page, selectors, timeout_ms=30000, poll_ms=600):
     raise PWTimeout(f"Could not find element in any frame for selectors: {selectors}")
 import re
 from docx import Document
-
-# --- helpers to normalize keys and build the mapping you already have ---
 def _norm_key(s: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', (s or '').strip().lower()).strip('_')
-
 _PLACEHOLDER_ANY = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I)
-
 def _build_alias_mapping(mapping: dict) -> dict:
     out = {}
     for k, v in mapping.items():
         nk = _norm_key(k)
         out[nk] = v
         if nk.endswith('_1'):
-            out[nk[:-2]] = v  # allow un-numbered alias for row 1
-    # Friendly aliases from the template screenshots
+            out[nk[:-2]] = v  
     aliases = {
         'today_date': out.get('todays_date', ''),
         'ir_name': out.get('ir_name', ''),
@@ -126,7 +121,6 @@ def _build_alias_mapping(mapping: dict) -> dict:
         'event_description': out.get('event_description', ''),
         'analysis_results_if_present': out.get('analysis_results', ''),
         'investigation_summary': out.get('investigation_summary', ''),
-        # Un-numbered product row → first row
         'product_id': out.get('product_id_1', ''),
         'product_desc': out.get('product_desc_1', ''),
         'lot_serial_number': out.get('serial_or_lot_1', ''),
@@ -284,38 +278,6 @@ def click_partners_tab(page, frame):
     except Exception:
         pass
     return True
-def _row_by_partner_function(frame, names):
-    if isinstance(names, str):
-        names = [names]
-    for fn in names:
-        tr = frame.locator(
-            f"xpath=//td[@aria-label='Partner Function' and normalize-space(.)='{fn}']/ancestor::tr[1]"
-        ).first
-        if tr.count():
-            return tr
-    for fn in names:
-        tr = frame.locator(
-            f"xpath=//tr[td and normalize-space(td[1])='{fn}']"
-        ).first
-        if tr.count():
-            return tr
-    for fn in names:
-        low = fn.lower()
-        tr = frame.locator(
-            "xpath=//td[@aria-label='Partner Function' and "
-            f"contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]/ancestor::tr[1]"
-        ).first
-        if tr.count():
-            return tr
-    for fn in names:
-        low = fn.lower()
-        tr = frame.locator(
-            "xpath=//tr[td and contains(translate(normalize-space(td[1]),"
-            f" 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]"
-        ).first
-        if tr.count():
-            return tr
-    return None
 def get_initial_reporter_name(frame):
     tr = _row_by_pf_in_partners(frame, ["Initial Reporter", "Initial Contact", "Initial Reporter/Contact"])
     if not tr:
@@ -328,39 +290,6 @@ def get_facility_name_and_address(frame):
     name = _cell_text_in_same_row(tr, "Name")
     addr = _cell_text_in_same_row(tr, "Address") or _cell_text_in_same_row(tr, "address_short")
     return f"{name}\n{addr}".strip()
-def _cell_in_row_by_aria_fuzzy(tr_loc, logical_name):
-    candidates = []
-    if logical_name.lower() == "name":
-        candidates = [
-            "xpath=.//td[@aria-label='Name']",
-            "xpath=.//td[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'name')]",
-        ]
-    elif logical_name.lower() == "address":
-        candidates = [
-            "xpath=.//td[@aria-label='Address']",
-            "xpath=.//td[@aria-label='address_short']",
-            "xpath=.//td[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'address')]",
-            "xpath=.//td[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'addr')]",
-        ]
-    else:
-        candidates = [f"xpath=.//td[@aria-label='{logical_name}']"]
-    for sel in candidates:
-        td = tr_loc.locator(sel).first
-        if td.count():
-            return clean(td.inner_text())
-    return ""
-def _debug_list_partner_functions(frame):
-    try:
-        pfs = frame.locator("xpath=//td[@aria-label='Partner Function']")
-        n = pfs.count()
-        if n == 0:
-            pfs = frame.locator("xpath=//tr[td]/td[1]")
-            n = pfs.count()
-        print(f"[Partners] Found {n} partner rows")
-        for i in range(min(n, 30)):
-            print("  -", clean(pfs.nth(i).inner_text()))
-    except Exception as e:
-        print("[Partners] PF debug error:", e)
 def _partners_table(frame):
     t = frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-PartnersTable-')]]").first
     return t if t.count() else None
@@ -461,57 +390,174 @@ def click_tab_by_text(page, root_frame, text_or_href_fragment):
             except Exception:
                 pass
     return None
+_COMPLETE_RX = re.compile(
+    r"\b(complete(?:d)?|closed\s*[-–]?\s*complete|closure\s*[-–]?\s*complete|final(?:ized)?|fully\s*resolved)\b",
+    re.I,
+)
+_ID_PATTERNS = [
+    r"\b\d{5,}\b",                 # plain long numbers
+    r"\bWI[-_ ]?\d{4,}\b",
+    r"\bINV[-_ ]?\d{4,}\b",
+    r"\bPA[-_ ]?\d{4,}\b",
+    r"\bTXN[-_ ]?\d{4,}\b",
+    r"\bAN[-_ ]?\d{4,}\b",
+    r"\b[A-Z]{2,5}[-_ ]?\d{4,}\b", # generic code-12345
+]
+def _find_first_match(patterns, s):
+    for p in patterns:
+        m = re.search(p, s or "", re.I)
+        if m:
+            return m.group(0)
+    return None
+def _row_combined_text(row):
+    try:
+        return clean(row.inner_text())
+    except Exception:
+        try:
+            return (row.evaluate("n => n.textContent || ''") or "").strip()
+        except Exception:
+            return ""
+def _row_txid(row):
+    combined = _row_combined_text(row)
+    txid = _find_first_match(_ID_PATTERNS, combined)
+    if txid:
+        return txid
+    links = row.locator("xpath=.//a[@href]")
+    for k in range(links.count()):
+        href = (links.nth(k).get_attribute("href") or "")
+        txid = _find_first_match(_ID_PATTERNS, href)
+        if txid:
+            return txid
+        m = re.search(r"(?:id|no|number|case|txn|wi)[=:/#](\w[-\w]*)", href, re.I)
+        if m:
+            return m.group(1)
+    cells = row.locator("xpath=.//th|.//td")
+    for j in range(cells.count()):
+        el = cells.nth(j)
+        for attr in ("data-id", "data-transactionid", "data-txid", "data-key"):
+            val = (el.get_attribute(attr) or "")
+            txid = _find_first_match(_ID_PATTERNS, val)
+            if txid:
+                return txid
+    return None
+def _row_status_text(row):
+    status_like = row.locator(
+        "xpath=.//*[(self::td or self::th) and "
+        " (contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'status') or "
+        "  contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'state') or "
+        "  contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'result') or "
+        "  contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'outcome') or "
+        "  contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'disposition') or "
+        "  contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'resolution'))]"
+    ).first
+    if status_like.count():
+        t = clean(status_like.inner_text()) or ""
+        if t:
+            return t
+    hinted = row.locator("xpath=.//*[@title or @aria-label or @alt]")
+    for k in range(hinted.count()):
+        node = hinted.nth(k)
+        for attr in ("title", "aria-label", "alt"):
+            val = node.get_attribute(attr) or ""
+            if _COMPLETE_RX.search(val):
+                return val
+    return _row_combined_text(row)
+def _row_is_complete(row):
+    t = (_row_status_text(row) or "").lower()
+    if _COMPLETE_RX.search(t):
+        return True
+    return ("closed" in t and "complete" in t)
 def _pli_table(frame):
     return frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-')]]").first
+def _get_attr_or_text(node):
+    return clean(
+        (node.get_attribute("title") or node.get_attribute("aria-label") or node.inner_text() or "")
+    )
 def read_all_products(page, root_frame):
     click_tab_by_text(page, root_frame, "Product Line Items") or \
     click_tab_by_text(page, root_frame, "_ovviewset.do_0002")
     fr = find_frame_with(page, "xpath=//td[starts-with(@id,'GUIDE-ProductLineItemsTable-')]")
+    if fr:
+        tbl = _pli_table(fr)
+        if tbl and tbl.count():
+            rows = tbl.locator(
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]]"
+            )
+            n = rows.count()
+            out = []
+            for i in range(n):
+                row = rows.nth(i)
+                prod = row.locator(
+                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]"
+                ).first
+                desc = row.locator(
+                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Description')]"
+                ).first
+                pid = clean(prod.inner_text()) if prod.count() else ""
+                pdesc = clean(desc.inner_text()) if desc.count() else ""
+                pcode = extract_product_code(pdesc)
+                sn_candidates = [
+                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN')]",
+                    "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'s/n')]",
+                    "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'serial')]",
+                ]
+                sn_val = ""
+                for sel in sn_candidates:
+                    sn_el = row.locator(sel).first
+                    if sn_el.count():
+                        sn_val = clean(sn_el.inner_text())
+                        if sn_val:
+                            break
+                lot_candidates = [
+                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Lot')]",
+                    "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'lot')]",
+                ]
+                lot_val = ""
+                for sel in lot_candidates:
+                    lot_el = row.locator(sel).first
+                    if lot_el.count():
+                        lot_val = clean(lot_el.inner_text())
+                        if lot_val:
+                            break
+                if pid or pdesc or sn_val or lot_val:
+                    out.append({"id": pid, "desc": pdesc, "code": pcode, "sn": sn_val, "lot": lot_val})
+            if out:
+                return out  # Successfully parsed GUIDE table; we're done.
+    fr = find_frame_with(page, "xpath=//*[contains(@id,'btadmini_table')]")
     if not fr:
         return []
-    tbl = _pli_table(fr)
-    if not tbl or not tbl.count():
-        return []
-    rows = tbl.locator(
-        "xpath=.//tr[td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')] ]"
+    rows = fr.locator(
+        "xpath=.//tr[.//a[contains(@id,'ordered_prod')] or .//a[contains(@id,'number_int')]]"
     )
     n = rows.count()
     out = []
     for i in range(n):
         row = rows.nth(i)
-        prod = row.locator(
-            "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]"
-        ).first
-        desc = row.locator(
-            "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Description')]"
-        ).first
-        pid = clean(prod.inner_text()) if prod.count() else ""
-        pdesc = clean(desc.inner_text()) if desc.count() else ""
-        pcode = extract_product_code(pdesc)
-        sn_candidates = [
-            "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN')]",
-            "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'s/n')]",
-            "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'serial')]",
-        ]
+        ordered_link = row.locator("xpath=.//a[contains(@id,'ordered_prod')]").first
+        pid = ""
+        if ordered_link.count():
+            try:
+                pid = (
+                    ordered_link.get_attribute("title")
+                    or ordered_link.get_attribute("aria-label")
+                    or ordered_link.inner_text()
+                    or ""
+                )
+                pid = clean(pid)
+            except Exception:
+                pid = ""
+        pdesc = ""
+        try:
+            if ordered_link.count():
+                maybe_desc = ordered_link.locator("xpath=ancestor::td[1]/following-sibling::td[1]").first
+                if maybe_desc.count():
+                    pdesc = clean(maybe_desc.inner_text())
+        except Exception:
+            pass
+        pcode = extract_product_code(pdesc) or pid
         sn_val = ""
-        for sel in sn_candidates:
-            sn_el = row.locator(sel).first
-            if sn_el.count():
-                sn_val = clean(sn_el.inner_text())
-                if sn_val:
-                    break
-        lot_candidates = [
-            "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Lot')]",     # covers -Lot and -LotVal
-            "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'lot')]",
-        ]
         lot_val = ""
-        for sel in lot_candidates:
-            lot_el = row.locator(sel).first
-            if lot_el.count():
-                lot_val = clean(lot_el.inner_text())
-                if lot_val:
-                    break
-        if pid or pdesc or sn_val or lot_val:
+        if pid or pdesc:
             out.append({"id": pid, "desc": pdesc, "code": pcode, "sn": sn_val, "lot": lot_val})
     return out
 def _dates_table(frame):
@@ -590,22 +636,6 @@ def _find_latest_text_table(page):
         except Exception:
             pass
     return tables[-1] if tables else (None, None)
-def _expand_if_truncated(frame):
-    try:
-        link = frame.locator("xpath=//a[contains(@id,'text_table') and contains(@id,'lines')]").first
-        if link.count():
-            log("[ui] Expanding truncated text")
-            try:
-                link.scroll_into_view_if_needed(timeout=1000)
-            except Exception:
-                pass
-            try:
-                link.click()
-            except Exception:
-                link.evaluate("e => e.click()")
-            frame.wait_for_timeout(200)
-    except Exception:
-        pass
 def read_event_description(page, root_frame):
     click_tab_by_text(page, root_frame, "Text Info") or \
     click_tab_by_text(page, root_frame, "_ovviewset.do_0006")
@@ -704,14 +734,6 @@ def click_left_nav_investigation(page):
             except Exception:
                 continue
     return False
-def _find_frame_with_selector(page, sel):
-    for fr in page.frames:
-        try:
-            if fr.locator(sel).first.count():
-                return fr
-        except Exception:
-            pass
-    return None
 def _textinfo_signature(page):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
@@ -1030,178 +1052,370 @@ def get_pa_code_to_id(page):
     log(f"[PA] detected {len(items)} anchors in Product Analysis section")
     return {(it["code"] or "").upper(): (it["data_id"] or "") for it in items if it["code"] and it["data_id"]}
 def click_associated_transactions_tab(page, root_frame):
-    # By label or the href you gave
     return (
         click_tab_by_text(page, root_frame, "Associated Transactions")
         or click_tab_by_text(page, root_frame, "_ovviewset.do_0012")
     )
-
 def _find_assoc_tx_frame(page):
-    cues = [
-        "xpath=//div[contains(@id,'_Table_bottom') or contains(@id,'_table_bottom')]",
-        "xpath=//table[contains(@class,'th-clr-table') and starts-with(@id,'C') and contains(@id,'_Table')]",
-    ]
-    for sel in cues:
-        fr = find_frame_with(page, sel, timeout_ms=6000)
-        if fr:
-            return fr
+    for fr in page.frames:
+        try:
+            if fr.locator("xpath=//div[contains(@id,'_Table_bottom') or contains(@id,'_table_bottom')]").first.count():
+                return fr
+        except Exception:
+            pass
+    for fr in page.frames:
+        try:
+            if fr.get_by_role("button", name=re.compile(r"^\s*(Analysis|Investigation)\s*$", re.I)).first.count():
+                return fr
+            if fr.locator("xpath=//span[contains(@class,'th-bt-span')][.//b[normalize-space(.)='Analysis' or normalize-space(.)='Investigation']]").first.count():
+                return fr
+        except Exception:
+            pass
     return None
-def _assoc_tx_tables_and_scroller(fr):
-    scroll_div = fr.locator(
-        "xpath=//div[contains(@id,'_Table_bottomDiv') or contains(@id,'_table_bottom')][contains(@style,'overflow')]"
-    ).first
-    if not scroll_div.count():
-        scroll_div = fr.locator(
-            "xpath=(//table[contains(@class,'th-clr-table') and contains(@id,'_Table')])[1]/ancestor::div[contains(@style,'overflow')]"
-        ).first
-    header_tbl = fr.locator(
-        "xpath=//table[(contains(@id,'_TableHeader') or contains(@id,'_Table_top')) and contains(@class,'th-clr-table')]"
-    ).first
-    body_tbl = fr.locator(
-        "xpath=//div[contains(@id,'_Table_bottom') or contains(@id,'_table_bottom')]//table[contains(@class,'th-clr-table')]"
-    ).first
-    if not body_tbl.count():
-        body_tbl = fr.locator(
-            "xpath=(//table[contains(@class,'th-clr-table') and contains(@id,'_Table')])[last()]"
-        ).first
-    return (header_tbl if header_tbl.count() else None,
-            body_tbl if body_tbl.count() else None,
-            scroll_div if scroll_div.count() else None)
-def _hdr_map_from_table(tbl):
-    hmap = {}
-    if not tbl or not tbl.count():
-        return hmap
-    heads = tbl.locator("xpath=.//thead//th|.//thead//td")
-    if not heads.count():
-        heads = tbl.locator("xpath=(.//tr[.//th])[last()]//th | (.//tr[1]/*[self::th or self::td])")
-    for i in range(heads.count()):
-        t = clean(heads.nth(i).inner_text())
-        if t:
-            hmap[_norm_key(t)] = i
-    return hmap
-def _hdr_map_from_aria(body_tbl):
-    amap = {}
+def _row_guess_id_type_status(row):
+    txid = _row_txid(row)
+    status = _row_status_text(row)
+    return txid, status
+def _collect_unfiltered(fr, header_tbl, body_tbl, scroll_div):
     if not body_tbl or not body_tbl.count():
-        return amap
-    first = body_tbl.locator("xpath=.//tr[td]").first
-    cells = first.locator("xpath=.//th|.//td")
-    for j in range(cells.count()):
-        lab = (cells.nth(j).get_attribute("aria-label") or "").strip()
-        if lab:
-            amap[_norm_key(lab)] = j
-    return amap
-def _scroll_to_load_all_in_div(fr, body_tbl, scroll_div):
-    if not scroll_div or not scroll_div.count():
-        _scroll_to_load_all(fr, body_tbl)
-        return
-    prev = -1
-    stable = 0
-    for _ in range(120):
-        rows = body_tbl.locator("xpath=.//tr[td]")
-        n = rows.count()
-        if n == prev:
-            stable += 1
-            if stable >= 3:  # 3 stable ticks ≈ done
-                break
-        else:
-            stable = 0
-        prev = n
-        try:
-            scroll_div.evaluate("n => { n.scrollTop = n.scrollHeight; }")
-        except Exception:
-            box = scroll_div.bounding_box()
-            if box:
-                fr.mouse.wheel(0, 1200)
-        fr.wait_for_timeout(180)
-def _scroll_to_load_all(fr, target):
-    prev = -1
-    for _ in range(20):
-        rows = target.locator("xpath=.//tr[td]")
-        n = rows.count()
-        if n == prev:
-            break
-        prev = n
-        try:
-            fr.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-        except Exception:
-            pass
-        try:
-            fr.mouse.wheel(0, 1400)
-        except Exception:
-            pass
-        fr.wait_for_timeout(160)
-
-def _infer_indices_by_samples(body_tbl):
-    rows = body_tbl.locator("xpath=.//tr[td]")
-    sample = min(rows.count(), 10)
-    votes_id, votes_type, votes_status = {}, {}, {}
-    status_set = {"complete","submitted","closed","open","in progress","reopened"}
-    for i in range(sample):
-        cells = rows.nth(i).locator("xpath=.//th|.//td")
-        c = cells.count()
-        texts = [clean(cells.nth(j).inner_text()) for j in range(c)]
-        for j, txt in enumerate(texts):
-            if re.search(r"\b\d{6,}\b", txt):      # Transaction ID looks like a long number
-                votes_id[j] = votes_id.get(j, 0) + 1
-            if re.match(r"^(product analysis|investigation)\b", txt, re.I):
-                votes_type[j] = votes_type.get(j, 0) + 1
-            if txt.strip().lower() in status_set:
-                votes_status[j] = votes_status.get(j, 0) + 1
-    def _winner(d): 
-        return max(d, key=d.get) if d else None
-    return _winner(votes_id), _winner(votes_type), _winner(votes_status)
-def read_associated_transactions_complete(page, root_frame):
-    click_associated_transactions_tab(page, root_frame)
-    fr = _find_assoc_tx_frame(page)
-    if not fr:
-        log("[AssocTx] grid frame not found")
-        return {"product_analysis": [], "investigation": []}
-    header_tbl, body_tbl, scroll_div = _assoc_tx_tables_and_scroller(fr)
-    if not body_tbl:
-        log("[AssocTx] grid table not found")
         return {"product_analysis": [], "investigation": []}
     _scroll_to_load_all_in_div(fr, body_tbl, scroll_div)
-    hmap = _hdr_map_from_table(header_tbl) or {}
-    if not {"transaction_id","transaction_type","status"} <= set(hmap.keys()):
-        a = _hdr_map_from_aria(body_tbl)
-        hmap = {**a, **hmap}  # aria wins only where header was missing
-    idx_id     = hmap.get("transaction_id")
-    idx_type   = hmap.get("transaction_type")
-    idx_status = hmap.get("status")
-    if None in (idx_id, idx_type, idx_status):
-        ii, it, is_ = _infer_indices_by_samples(body_tbl)
-        idx_id     = idx_id     if idx_id     is not None else ii
-        idx_type   = idx_type   if idx_type   is not None else it
-        idx_status = idx_status if idx_status is not None else is_
-    log(f"[AssocTx] indices → id={idx_id}, type={idx_type}, status={idx_status}")
-    if None in (idx_id, idx_type, idx_status):
-        log("[AssocTx] couldn’t determine all columns")
-        return {"product_analysis": [], "investigation": []}
     rows = body_tbl.locator("xpath=.//tr[td]")
-    n = rows.count()
     pa, inv = [], []
-    for i in range(n):
-        cells = rows.nth(i).locator("xpath=.//th|.//td")
-        count = cells.count()
-        if count <= max(idx_id, idx_type, idx_status):
+    for i in range(rows.count()):
+        row = rows.nth(i)
+        txid, gtype, status = _row_guess_id_type_status(row)
+        if not txid or not gtype:
             continue
-        txid_txt  = clean(cells.nth(idx_id).inner_text())
-        type_txt  = clean(cells.nth(idx_type).inner_text())
-        status_tx = clean(cells.nth(idx_status).inner_text())
-        m = re.search(r"\b\d{5,}\b", txid_txt or "")
-        txid = m.group(0) if m else ""
-        ttype = (type_txt or "").lower()
-        stat  = (status_tx or "").lower()
-        if not (txid and stat == "complete"):
+        is_complete = False
+        if status:
+            s = status.lower()
+            is_complete = ("complete" in s) or (s.strip() == "completed") or ("closed - complete" in s)
+        else:
+            is_complete = False
+        if not is_complete:
             continue
-        if ttype.startswith("product analysis"):
+        if gtype == "analysis":
             pa.append(txid)
-        elif ttype.startswith("investigation"):
+        elif gtype == "investigation":
             inv.append(txid)
     pa = list(dict.fromkeys(pa))
     inv = list(dict.fromkeys(inv))
-    log(f"[AssocTx] Product Analysis (Complete): {pa}")
-    log(f"[AssocTx] Investigations (Complete): {inv}")
+    log(f"[AssocTx] (unfiltered) PA complete={len(pa)} INV complete={len(inv)}")
+    return {"product_analysis": pa, "investigation": inv}
+def _assoc_click_filter(fr, label: str) -> bool:
+    try:
+        btn = fr.get_by_role("button", name=re.compile(rf"^\s*{re.escape(label)}\s*$", re.I)).first
+        if btn.count():
+            log(f"[AssocTx] clicking filter via role: {label}")
+            robust_click(btn, fr)
+            try: fr.wait_for_timeout(300)
+            except Exception: pass
+            return True
+    except Exception:
+        pass
+    try:
+        btn = fr.locator(
+            "xpath=//span[contains(@class,'th-bt-span')][.//b[normalize-space(.)="
+            f"'{label}']]"
+        ).first
+        if btn.count():
+            log(f"[AssocTx] clicking filter via span/b: {label}")
+            robust_click(btn, fr)
+            try: fr.wait_for_timeout(300)
+            except Exception: pass
+            return True
+    except Exception:
+        pass
+    try:
+        b = fr.locator(f"xpath=//*[normalize-space(.)='{label}']").first
+        if b.count():
+            cand = b.locator("xpath=ancestor-or-self::*[self::button or self::span or self::a][1]").first
+            if cand.count():
+                log(f"[AssocTx] clicking filter via generic text: {label}")
+                robust_click(cand, fr)
+                try: fr.wait_for_timeout(300)
+                except Exception: pass
+                return True
+    except Exception:
+        pass
+    log(f"[AssocTx] filter button NOT found: {label}")
+    return False
+def _hdr_indices_from_any(header_tbl, body_tbl):
+    labels = []  # list of (index, label_text)
+    if header_tbl and header_tbl.count():
+        cells = header_tbl.locator("xpath=.//thead//th|.//thead//td|.//tr[1]/*")
+        for i in range(cells.count()):
+            c = cells.nth(i)
+            t = clean(c.inner_text())
+            if not t:
+                t = (c.get_attribute("aria-label") or c.get_attribute("id") or "").strip()
+            labels.append((i, t or ""))
+    if not labels:
+        first = body_tbl.locator("xpath=.//tr[td]").first
+        cells = first.locator("xpath=.//th|.//td")
+        for i in range(cells.count()):
+            c = cells.nth(i)
+            t = (
+                c.get_attribute("aria-label")
+                or c.get_attribute("headers")
+                or c.get_attribute("id")
+                or clean(c.inner_text())
+                or ""
+            ).strip()
+            labels.append((i, t))
+    def find_idx(patterns):
+        for i, t in labels:
+            if any(re.search(p, t or "", re.I) for p in patterns):
+                return i
+        return None
+    idx_id = find_idx([r'(?:trans|txn|transaction|work\s*item).*?(?:id|no|number)'])
+    idx_type = find_idx([r'(?:trans|txn|transaction|work\s*item|related).*?(?:type|category)'])
+    idx_status = find_idx([r'(?:status|state)\b'])
+    return idx_id, idx_type, idx_status
+def _scroll_to_load_all_in_div(fr, body_tbl, scroll_div):
+    if not body_tbl or not body_tbl.count():
+        return
+    rows = body_tbl.locator("xpath=.//tr[td]")
+    target = scroll_div if (scroll_div and scroll_div.count()) else body_tbl
+    try:
+        box = body_tbl.bounding_box()
+        if box:
+            fr.mouse.move(box["x"] + box["width"]/2, box["y"] + min(24, box["height"] - 6))
+    except Exception:
+        pass
+    try:
+        target.evaluate("n => { n.tabIndex = 0; n.focus(); }")
+    except Exception:
+        pass
+    prev = -1
+    stagnant = 0
+    for _ in range(240):  # ~30s worst-case
+        n = rows.count()
+        log(f"[AssocTx] rows visible: {n}")
+        if n == prev:
+            stagnant += 1
+            if stagnant >= 6:
+                break
+        else:
+            stagnant = 0
+        prev = n
+        try:
+            if n > 0:
+                rows.nth(n - 1).scroll_into_view_if_needed(timeout=500)
+        except Exception:
+            pass
+        try:
+            target.press("PageDown")
+        except Exception:
+            try: fr.keyboard.press("PageDown")
+            except Exception: pass
+        try:
+            target.press("End")
+        except Exception:
+            try: fr.keyboard.press("End")
+            except Exception: pass
+        try:
+            fr.mouse.wheel(0, 1800)
+        except Exception:
+            pass
+        fr.wait_for_timeout(140)
+_TRANS_HEADER_RX = re.compile(
+    r"(transaction|work\s*item|related|type|category|status|state|number|id|no\b|ref|reference)",
+    re.I,
+)
+_PLI_HEADER_RX = re.compile(
+    r"(product|description|lot|sn|serial|qty|quantity|uom|unit)", re.I
+)
+def _table_header_labels(tbl):
+    labels = []
+    cells = tbl.locator("xpath=.//thead//th|.//thead//td|.//tr[1]/*")
+    for j in range(cells.count()):
+        c = cells.nth(j)
+        t = clean(c.inner_text()) or (c.get_attribute("aria-label") or c.get_attribute("id") or "")
+        t = (t or "").strip()
+        if t:
+            labels.append(t)
+    return labels
+
+def _score_header_labels(labels):
+    if not labels:
+        return -999
+    trans_hits = sum(1 for t in labels if _TRANS_HEADER_RX.search(t))
+    pli_hits   = sum(1 for t in labels if _PLI_HEADER_RX.search(t))
+    return (trans_hits * 3) - (pli_hits * 4)
+def _pick_assoc_grid_table(fr):
+    best = (-9999, None, None, None, [])
+    bodies = fr.locator(
+        "xpath=//div[contains(@id,'_Table_bottom') or contains(@id,'_table_bottom')]"
+        "//table[contains(@class,'th-clr-table')]"
+    )
+    for i in range(bodies.count()):
+        body = bodies.nth(i)
+        header = body.locator(
+            "xpath=ancestor::div[1]/preceding-sibling::div[1]//table[contains(@class,'th-clr-table')]"
+        ).first
+        labels = _table_header_labels(header if header.count() else body)
+        score = _score_header_labels(labels)
+        if _is_bad_table(body, labels):
+            score -= 5000
+        sigs = _table_id_signatures(body)
+        if any(_ASSOC_CELL_ID_RX.search(s) for s in sigs):
+            score += 8000
+        labset = set(labels)
+        if "Transaction ID" in labset:
+            score += 500
+        if "Status" in labset:
+            score += 300
+        sc = body.locator("xpath=ancestor::div[contains(@style,'overflow')][1]").first
+        if sc.count():
+            score += 50
+        if score > best[0]:
+            best = (score, header if header.count() else None, body, sc if sc.count() else None, labels)
+    if best[1] is None and best[2] is None:
+        any_tbls = fr.locator("xpath=//table[contains(@class,'th-clr-table')]")
+        for i in range(any_tbls.count()):
+            tb = any_tbls.nth(i)
+            labels = _table_header_labels(tb)
+            score = _score_header_labels(labels)
+            if _is_bad_table(tb, labels): score -= 5000
+            sigs = _table_id_signatures(tb)
+            if any(_ASSOC_CELL_ID_RX.search(s) for s in sigs): score += 8000
+            if score > best[0]:
+                best = (score, None, tb, None, labels)
+    _, header_tbl, body_tbl, scroll_div, headers = best
+    if body_tbl:
+        log(f"[AssocTx] chose grid with headers: {headers}")
+        if _is_bad_table(body_tbl, headers) and not _is_assoc_tx_table(headers, body_tbl):
+            log("[AssocTx] rejecting non-transaction grid (attachments/text/partners)")
+            return None, None, None, []
+    else:
+        log("[AssocTx] no suitable transaction grid found in this frame")
+    return header_tbl, body_tbl, scroll_div, headers
+def _node_signature(loc):
+    try:
+        return loc.evaluate("n => (n.innerText || '').slice(0, 1200)") or ""
+    except Exception:
+        try:
+            return clean(loc.inner_text())[:1200]
+        except Exception:
+            return ""
+_ASSOC_CELL_ID_RX = re.compile(r'\bGUIDE-AssociatedTransactionsTable-', re.I)
+_BAD_TABLE_ID_RXS = [
+    re.compile(r'\bGUIDE-AttachmentsTable-', re.I),
+    re.compile(r'\bGUIDE-TextInfoTable-', re.I),
+    re.compile(r'\bGUIDE-PartnersTable-', re.I),
+    re.compile(r'\bGUIDE-ProductLineItemsTable-', re.I),
+]
+def _table_id_signatures(tbl):
+    sigs = []
+    try:
+        cells = tbl.locator("xpath=.//th|.//td")
+        for j in range(min(cells.count(), 200)):
+            sid = (cells.nth(j).get_attribute("id") or "")
+            if sid:
+                sigs.append(sid)
+    except Exception:
+        pass
+    return sigs
+def _is_assoc_tx_table(headers, body_tbl):
+    labels = [h.lower() for h in (headers or [])]
+    if ("transaction id" in labels and "status" in labels):
+        return True
+    sigs = _table_id_signatures(body_tbl)
+    if any(_ASSOC_CELL_ID_RX.search(s) for s in sigs):
+        return True
+    return False
+def _is_bad_table(body_tbl, headers):
+    sigs = _table_id_signatures(body_tbl)
+    if any(rx.search(s) for rx in _BAD_TABLE_ID_RXS for s in sigs):
+        return True
+    h = set((headers or []))
+    if {"Name","Document Type","Folder Path"}.issubset(h):
+        return True  # attachments
+    return False
+def read_associated_transactions_complete(page, root_frame):
+    click_associated_transactions_tab(page, root_frame)
+    fr = None
+    for _ in range(20):
+        fr = _find_assoc_tx_frame(page)
+        if fr:
+            break
+        page.wait_for_timeout(250)
+    if not fr:
+        log("[AssocTx] grid frame not found")
+        return {"product_analysis": [], "investigation": []}
+    def _collect_for(label):
+        h0, b0, sc0, hdr0 = _pick_assoc_grid_table(fr)
+        sig_before = _node_signature(b0) if b0 else ""
+        if not _assoc_click_filter(fr, label):
+            return []
+        header_tbl = body_tbl = scroll_div = None
+        headers = []
+        changed = False
+        for _ in range(40):  # ~8s
+            page.wait_for_timeout(200)
+            h1, b1, sc1, hdr1 = _pick_assoc_grid_table(fr)
+            if b1 and _is_assoc_tx_table(hdr1, b1):
+                sig_after = _node_signature(b1)
+                header_tbl, body_tbl, scroll_div, headers = h1, b1, sc1, hdr1
+                if (sig_after and sig_after != sig_before) or not sig_before:
+                    changed = True
+                    break
+        if not body_tbl:
+            log(f"[AssocTx] no AssociatedTransactions grid after clicking {label} — skipping")
+            return []
+        _scroll_to_load_all_in_div(fr, body_tbl, scroll_div)
+        rows = body_tbl.locator("xpath=.//tr[td]")
+        idx_id, idx_type, idx_status = _hdr_indices_from_any(header_tbl, body_tbl)
+        ids_complete, ids_any = [], []
+        n = rows.count()
+        for i in range(n):
+            row = rows.nth(i)
+            cells = row.locator("xpath=.//th|.//td")
+            txid = None
+            status = None
+            if idx_id is not None and cells.count() > idx_id:
+                txid_txt = clean(cells.nth(idx_id).inner_text())
+                txid = _find_first_match([r"\b\d{5,}\b", r"\b[A-Z]{2,5}[-_ ]?\d{4,}\b"], txid_txt) or txid_txt
+            else:
+                txid = _row_txid(row)
+
+            if idx_status is not None and cells.count() > idx_status:
+                status = clean(cells.nth(idx_status).inner_text())
+            else:
+                status = _row_status_text(row)
+
+            dbg = f"id={txid or '-'} status={(status or '').strip()!r}"
+            log(f"[AssocTx:{label}] row {i+1}/{n}: {dbg}")
+
+            if not txid:
+                continue
+            ids_any.append(txid)
+            if _row_is_complete(row) or re.search(r'\bcomplete(d)?\b', (status or ''), re.I):
+                ids_complete.append(txid)
+        ids_complete = list(dict.fromkeys(ids_complete))
+        ids_any = list(dict.fromkeys(ids_any))
+        if ids_complete:
+            return ids_complete
+        if ids_any:
+            log(f"[AssocTx:{label}] no explicit 'Complete' statuses found; returning all ({len(ids_any)})")
+            return ids_any
+        return []
+    has_btns = (
+        fr.get_by_role("button", name=re.compile(r"^\s*(Analysis|Investigation)\s*$", re.I)).first.count() or
+        fr.locator("xpath=//span[contains(@class,'th-bt-span')][.//b[normalize-space(.)='Analysis' or normalize-space(.)='Investigation']]").first.count()
+    )
+    if not has_btns:
+        log("[AssocTx] filter buttons not present in detected frame; falling back to unfiltered parse")
+        header_tbl, body_tbl, scroll_div, _ = _pick_assoc_grid_table(fr)
+        if not body_tbl:
+            return {"product_analysis": [], "investigation": []}
+        return _collect_unfiltered(fr, header_tbl, body_tbl, scroll_div)
+    pa = _collect_for("Analysis")
+    inv = _collect_for("Investigation")
+    log(f"[AssocTx] Product Analysis (Complete or fallback): {pa}")
+    log(f"[AssocTx] Investigations (Complete or fallback): {inv}")
     return {"product_analysis": pa, "investigation": inv}
 def summary_has_product_id(text: str, product_id: str) -> bool:
     if not text or not product_id:
@@ -1344,29 +1558,6 @@ def _find_latest_text_table_in(fr):
     scope = scope if scope.count() else fr
     tds = scope.locator("xpath=.//table[.//td[starts-with(@id,'GUIDE-TextInfoTable-')]]")
     return tds.nth(tds.count()-1) if tds.count() else None
-def _expand_if_truncated_strong(frame):
-    link = frame.locator("xpath=//a[contains(@id,'text_table') and contains(@id,'lines')]").first
-    if link.count():
-        try:
-            robust_click(link, frame)
-        except Exception:
-            try:
-                link.evaluate("e => e.click()")
-            except Exception:
-                pass
-        try:
-            frame.wait_for_timeout(200)
-        except Exception:
-            pass
-def _safe_text(node):
-    if not node or not node.count():
-        return ""
-    raw = node.evaluate("n => (n.textContent || '')") or ""
-    raw = raw.replace("\xa0", " ")                          # &nbsp;
-    raw = re.sub(r'\r?\n\s*\r?\n+', '\n\n', raw)
-    raw = re.sub(r'[ \t]+', ' ', raw)
-    raw = re.sub(r'\s*\n\s*', '\n', raw).strip()
-    return raw
 def _suppress_clicks_enable(frame):
     try:
         frame.evaluate("""
@@ -1415,14 +1606,6 @@ def _safe_td_text(td):
             raw = td.evaluate("n => n.textContent || ''") or ""
         except Exception:
             raw = ""
-    return _normalize_text(raw)
-def _safe_text(node):
-    if not node or not node.count():
-        return ""
-    try:
-        raw = node.evaluate("n => n.textContent || ''") or ""
-    except Exception:
-        raw = ""
     return _normalize_text(raw)
 def _pa_try_expand(fr):
     header = fr.locator("xpath=//*[contains(@class,'left-nav')]//*[contains(@class,'ProductAnalysis')]").first
@@ -1681,27 +1864,15 @@ def main():
         assoc = read_associated_transactions_complete(page, frame)
         print(f"[AssociatedTx] Product Analysis (Complete): {assoc['product_analysis']}")
         print(f"[AssociatedTx] Investigations (Complete): {assoc['investigation']}")
-        log("[step 6] Product Analysis side panel → Analysis Summary per product")
-        analysis_by_pid = collect_product_analysis(page, frame, products)
-        pa_ids = get_pa_code_to_id(page)
         for idx, p in enumerate(products[:3], start=1):
-            pid = (p.get("id") or "").strip()
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
-            values[f"product_id_{idx}"]    = (p.get("id") or pa_ids.get(code, "") or code)
+            values[f"product_id_{idx}"] = (p.get("id") or code)
             values[f"product_desc_{idx}"]  = p.get("desc","")
             values[f"product_sn_{idx}"]    = p.get("sn","")
             values[f"product_lot_{idx}"]   = p.get("lot","")
             values[f"serial_or_lot_{idx}"] = " / ".join([s for s in [p.get('sn',''), p.get('lot','')] if s])
             values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
             values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
-        lines = []
-        for p in products:
-            code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
-            summary = analysis_by_pid.get(code, "")
-            if summary:
-                data_id = pa_ids.get(code, "")
-                lines.append(f"{data_id or code} — {summary}")
-        values["analysis_results"] = "\n\n".join(lines) if lines else values.get("analysis_results","")
         if len(products) > 3:
             extras = [f"{p['id']} — {p['desc']}" for p in products[3:]]
             values.setdefault("product_extras", "\n".join(extras))
