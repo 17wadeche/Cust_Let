@@ -1686,25 +1686,81 @@ def _click_objects_dropdown(fr):
         return True
     except Exception:
         return False
-def _pick_dropdown_option(fr, visible_text: str) -> bool:
+def _list_objects_options(fr):
+    ul = _objects_dropdown_list(fr)
+    if not ul.count():
+        return []
+    labels = ul.locator(".//span[contains(@class,'th-hb-value')] | .//*[@role='option'] | .//a | .//li")
+    out = []
+    for i in range(min(labels.count(), 200)):
+        el = labels.nth(i)
+        try:
+            txt = (el.inner_text() or "").strip()
+        except Exception:
+            txt = (el.get_attribute("aria-label") or el.get_attribute("title") or "").strip()
+        if txt:
+            out.append((el, txt))
+    return out
+def _pick_dropdown_option(fr, want_texts) -> bool:
     ul = _objects_dropdown_list(fr)
     if not ul.count():
         return False
-    opt = ul.locator("xpath=.//span[contains(@class,'th-hb-value') "
-                     f"and normalize-space(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'))="
-                     f"'{visible_text.lower()}']").first
-    if not opt.count():
-        opt = ul.locator("xpath=.//span[contains(@class,'th-hb-value') "
-                         f"and contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
-                         f" '{visible_text.lower()}')]").first
-    if opt.count():
-        try:
-            robust_click(opt, fr)
-            fr.wait_for_timeout(150)
+    options = _list_objects_options(fr)
+    log("[scope] Objects options: " + ", ".join([repr(t) for _, t in options[:30]]))
+    wants = [w.strip().lower() for w in (want_texts if isinstance(want_texts, (list, tuple)) else [want_texts])]
+    def _match(txt):
+        low = (txt or "").strip().lower()
+        if any(low == w for w in wants):
             return True
-        except Exception:
-            pass
-    return False
+        if any(w in low for w in wants):
+            return True
+        return "activit" in low
+    target = None
+    for el, txt in options:
+        if _match(txt):
+            target = el
+            break
+    if not target:
+        return False
+    clickable = target.locator("xpath=ancestor-or-self::*[self::a or self::li or self::div][1]").first
+    if not clickable.count():
+        clickable = target
+
+    try:
+        robust_click(clickable, fr)
+        fr.wait_for_timeout(200)
+        return True
+    except Exception:
+        return False
+def _objects_button_text(fr) -> str:
+    btn = _objects_dropdown_button(fr)
+    if not btn.count():
+        return ""
+    try:
+        txt = btn.inner_text().strip()
+    except Exception:
+        txt = (btn.get_attribute("title") or btn.get_attribute("aria-label") or "").strip()
+    return txt
+def set_search_scope(page, desired_labels=("Activities","Activity")) -> bool:
+    fr = _find_scope_frame_for_objects(page)
+    if not fr:
+        log("[scope] Could not find frame for Objects dropdown")
+        return False
+    before = _objects_button_text(fr)
+    if not _click_objects_dropdown(fr):
+        log("[scope] Could not open Objects dropdown")
+        return False
+    picked = _pick_dropdown_option(fr, list(desired_labels))
+    if not picked:
+        log("[scope] No matching option found; keeping scope as-is")
+        try: _click_objects_dropdown(fr)
+        except Exception: pass
+        return False
+    fr.wait_for_timeout(150)
+    after = _objects_button_text(fr)
+    ok = any(lbl.lower() in (after or "").lower() for lbl in desired_labels) or ("activit" in (after or "").lower())
+    log(f"[scope] Objects now shows: {after!r} ⇒ ok={ok}")
+    return ok
 def _find_scope_frame_for_objects(page):
     for fr in page.frames:
         try:
@@ -1745,8 +1801,8 @@ def _submit_global_search(ctx, input_el):
         pass
     return soft_click_go(ctx)
 def search_activities_for_id(page, txid: str) -> bool:
-    if not set_search_scope_to_activities(page):
-        log("[search] WARNING: failed to set scope to Activities; continuing anyway.")
+    if not set_search_scope(page, ("Activities","Activity")):
+        log("[search] WARNING: failed to set scope to Activities/Activity; continuing anyway.")
     input_el, ctx = _find_global_search_input_anywhere(page)
     if not input_el:
         log("[search] Global search input not found")
