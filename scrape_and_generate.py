@@ -1398,7 +1398,6 @@ def _table_header_labels(tbl):
         if t:
             labels.append(t)
     return labels
-
 def _score_header_labels(labels):
     if not labels:
         return -999
@@ -1514,7 +1513,7 @@ def read_associated_transactions_complete(page, root_frame):
         header_tbl = body_tbl = scroll_div = None
         headers = []
         changed = False
-        for _ in range(40):  # ~8s
+        for _ in range(3):  # ~600ms total
             page.wait_for_timeout(200)
             h1, b1, sc1, hdr1 = _pick_assoc_grid_table(fr)
             if b1 and _is_assoc_tx_table(hdr1, b1):
@@ -1522,7 +1521,7 @@ def read_associated_transactions_complete(page, root_frame):
                 header_tbl, body_tbl, scroll_div, headers = h1, b1, sc1, hdr1
                 if (sig_after and sig_after != sig_before) or not sig_before:
                     changed = True
-                    break
+                break
         if not body_tbl:
             log(f"[AssocTx] no AssociatedTransactions grid after clicking {label} — skipping")
             return []
@@ -2537,22 +2536,6 @@ def main():
         log(f"[Dates] event_date={values.get('event_date','')}")
         log("[step 4] Product Line Items → all rows")
         products = read_all_products(page, frame)
-        pa_by_product = collect_product_analysis(page, frame, products)
-        inv_by_product = collect_investigations_by_product(page, frame, products)
-        DEFAULT_NO_ANALYSIS = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
-        for idx, p in enumerate(products, start=1):
-            code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
-            key  = code or (p.get("id") or "") or p.get("desc","")
-            desc = (p.get("desc") or "").strip()
-            pa_text = (pa_by_product.get(key) or "").strip()
-            if pa_text and pa_text != DEFAULT_NO_ANALYSIS:
-                analysis_block = (f"{desc} was received for evaluation. "
-                                f"Examination of the sample is described below.\n\n{pa_text}").strip()
-            else:
-                analysis_block = DEFAULT_NO_ANALYSIS
-            values[f"analysis{idx}"] = analysis_block
-            inv_text = (inv_by_product.get(key) or "").strip()
-            values[f"investigation{idx}"] = inv_text
         log(f"[PLI] rows detected: {len(products)}")
         log("[step 5] Text Info → event_description")
         prev_sig = _textinfo_signature(page)
@@ -2566,19 +2549,15 @@ def main():
         log(f"[Text] description length: {len(values.get('event_description',''))}")
         log("[step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs")
         assoc = read_associated_transactions_complete(page, frame)
-        print(f"[AssociatedTx] Product Analysis (Complete): {assoc['product_analysis']}")
-        print(f"[AssociatedTx] Investigations (Complete): {assoc['investigation']}")
         pa_ids_raw = values.get("assoc_tx_product_analysis_ids", "") or ", ".join(assoc.get("product_analysis", []))
         pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
         pa_summary_lines = []
-        for k, txid in enumerate(pa_ids, start=1):
+        for txid in pa_ids:
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
             summary = read_analysis_summary_for_txid(page, txid)
             if summary:
-                log(f"[PA-SUMMARY] {txid}: length={len(summary)}")
                 pa_summary_lines.append(f"{txid}\n{summary}")
             else:
-                log(f"[PA-SUMMARY] {txid}: (no Analysis Summary found)")
                 pa_summary_lines.append(f"{txid}\n(No Analysis Summary found)")
         if pa_summary_lines:
             values["analysis_results"] = "\n\n".join(pa_summary_lines)
@@ -2587,12 +2566,10 @@ def main():
         inv_summary_lines = []
         for txid in inv_ids:
             log(f"[INV-SUMMARY] Fetching Investigation Summary for INV ID: {txid}")
-            summary = read_investigation_summary_for_txid(page, txid)  # alias to analysis reader
+            summary = read_investigation_summary_for_txid(page, txid)
             if summary:
-                log(f"[INV-SUMMARY] {txid}: length={len(summary)}")
                 inv_summary_lines.append(f"{txid}\n{summary}")
             else:
-                log(f"[INV-SUMMARY] {txid}: (no Investigation Summary found)")
                 inv_summary_lines.append(f"{txid}\n(No Investigation Summary found)")
         if inv_summary_lines:
             values["investigation_summary"] = "\n\n".join(inv_summary_lines)
