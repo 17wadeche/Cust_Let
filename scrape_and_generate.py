@@ -2595,8 +2595,19 @@ def main():
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"] = (p.get("id") or code)
             values[f"product_desc_{idx}"]  = p.get("desc","")
+            sn  = (p.get("sn", "") or "").strip()
+            lot = (p.get("lot", "") or "").strip()
             values[f"product_sn_{idx}"]    = p.get("sn","")
             values[f"product_lot_{idx}"]   = p.get("lot","")
+            if sn and lot:
+                display_val = f"SN: {sn} / LN: {lot}"
+            elif sn:
+                display_val = f"SN: {sn}"
+            elif lot:
+                display_val = f"LN: {lot}"
+            else:
+                display_val = ""
+            values[f"serial_or_lot_{idx}"] = display_val
             values[f"serial_or_lot_{idx}"] = " / ".join([s for s in [p.get('sn',''), p.get('lot','')] if s])
         values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
         values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
