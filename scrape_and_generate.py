@@ -2135,19 +2135,29 @@ def read_analysis_summary_for_txid(page, txid: str) -> str:
 def read_investigation_summary_for_txid(page, txid: str) -> str:
     return read_analysis_summary_for_txid(page, txid)
 def _remove_rb_reference_line(xml: str, rb_value: str) -> str:
-    if rb_value:
+    if rb_value:  # nothing to remove
         return xml
+    rx_sdt = re.compile(
+        r'<w:sdt\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:sdt>',
+        re.I
+    )
+    xml2, n1 = rx_sdt.subn('', xml)
+    if n1:
+        return xml2
     rx_tr = re.compile(
         r'<w:tr\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:tr>',
         re.I
     )
-    xml = rx_tr.sub('', xml)
+    xml3, n2 = rx_tr.subn('', xml2)
+    if n2:
+        return xml3
     rx_p = re.compile(
         r'<w:p\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:p>',
         re.I
     )
-    xml = rx_p.sub('', xml)
-    return xml
+    xml4, _ = rx_p.subn('', xml3)
+    return xml4
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
