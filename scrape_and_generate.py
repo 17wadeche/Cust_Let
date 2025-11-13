@@ -637,8 +637,14 @@ def _row_is_complete(row):
 def _pli_table(frame):
     return frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-')]]").first
 def _get_attr_or_text(node):
+    try:
+        text = clean(node.inner_text() or "")
+    except Exception:
+        text = ""
+    if text:
+        return text
     return clean(
-        (node.get_attribute("title") or node.get_attribute("aria-label") or node.inner_text() or "")
+        (node.get_attribute("title") or node.get_attribute("aria-label") or "")
     )
 def read_all_products(page, root_frame):
     click_tab_by_text(page, root_frame, "Product Line Items") or \
@@ -667,8 +673,12 @@ def read_all_products(page, root_frame):
                         pid = _get_attr_or_text(ordered_link)
                     else:
                         pid = ""
+                    if not pid:
+                        pid_text = _get_attr_or_text(prod_cell)
+                        if pid_text:
+                            pid = extract_product_code(pid_text)
                 pdesc = clean(desc_cell.inner_text()) if desc_cell.count() else ""
-                pcode = extract_product_code(pdesc) or pid
+                pcode = pid or extract_product_code(pdesc)
                 sn_candidates = [
                     "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN')]",
                     "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'s/n')]",
@@ -716,7 +726,7 @@ def read_all_products(page, root_frame):
                     pdesc = clean(maybe_desc.inner_text())
         except Exception:
             pass
-        pcode = extract_product_code(pdesc) or pid
+        pcode = pid or extract_product_code(pdesc)
         sn_val = ""
         lot_val = ""
         if pid or pdesc:
@@ -1765,8 +1775,14 @@ def expand_full_text_if_collapsed(frame):
     except Exception:
         pass
 def extract_product_code(desc: str) -> str:
-    m = re.search(r'[A-Z0-9_]+', (desc or '').upper())
-    return m.group(0) if m else ''
+    s = (desc or "").upper()
+    toks = re.findall(r"[A-Z0-9][A-Z0-9_-]*", s)
+    if not toks:
+        return ""
+    for t in toks:
+        if re.search(r"\d", t):
+            return t
+    return toks[0]
 def active_content_frames(page, cfg):
     name_rx = cfg.get('content_frame_name_regex') or cfg.get('frame_name_regex')
     url_rx  = cfg.get('frame_url_regex')
@@ -2562,9 +2578,9 @@ def main():
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
             summary = read_analysis_summary_for_txid(page, txid)
             if summary:
-                pa_summary_lines.append(f"{txid}\n{summary}")
+                pa_summary_lines.append(summary)
             else:
-                pa_summary_lines.append(f"{txid}\n(No Analysis Summary found)")
+                pa_summary_lines.append("(No Analysis Summary found)")
         default_pa_text = (
             "Information provided to Medtronic indicated that the complaint device "
             "was not available for evaluation."
@@ -2580,9 +2596,9 @@ def main():
             log(f"[INV-SUMMARY] Fetching Investigation Summary for INV ID: {txid}")
             summary = read_investigation_summary_for_txid(page, txid)
             if summary:
-                inv_summary_lines.append(f"{txid}\n{summary}")
+                inv_summary_lines.append(summary)
             else:
-                inv_summary_lines.append(f"{txid}\n(No Investigation Summary found)")
+                inv_summary_lines.append("(No Investigation Summary found)")
         if inv_summary_lines:
             values["investigation_summary"] = "\n\n".join(inv_summary_lines)
         if values.get("analysis_results"):
