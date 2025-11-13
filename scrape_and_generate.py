@@ -168,27 +168,25 @@ def _xml_replace_all(xml: str, mapping: dict) -> str:
     fast = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I | re.S)
     def _quick(m):
         k = _norm_key(m.group(2))
-        return mapping[k] if k in mapping and mapping[k] not in (None, '') else m.group(0)
+        if k in mapping:
+            v = mapping[k]
+            if v is not None and v != '':
+                return str(v)               # <-- ensure string
+        return m.group(0)
     xml_new = fast.sub(_quick, xml)
     keys_seen = set()
     for raw_key, value in mapping.items():
-        if not value:
+        if value in (None, ''):
             continue
+        value_str = str(value)               # <-- ensure string once
         for label in {raw_key, raw_key.replace('_', ' ')}:
-            if label in keys_seen: 
+            if label in keys_seen:
                 continue
             keys_seen.add(label)
             pat_sq, pat_cu = _patterns_for_key(label)
-            xml_new = pat_sq.sub(value, xml_new)
-            xml_new = pat_cu.sub(value, xml_new)
+            xml_new = pat_sq.sub(lambda _m, vs=value_str: vs, xml_new)
+            xml_new = pat_cu.sub(lambda _m, vs=value_str: vs, xml_new)
     return xml_new
-def _peek_brace_context(xml: str, needle='{', width=180):
-    i = xml.find(needle)
-    if i == -1:
-        return ''
-    start = max(0, i - width)
-    end   = min(len(xml), i + width)
-    return xml[start:end]
 _PLACEHOLDER_FINDER = re.compile(
     r'(?P<open>\{\{|\[\[)'                  # {{ or [[
     r'(?:\s|<[^>]*?>)*?'                    # gaps (tags/whitespace) between open and label
