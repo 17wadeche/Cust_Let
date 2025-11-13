@@ -329,6 +329,8 @@ def replace_everywhere(doc: Document, mapping: dict):
                 print("[DOCX] parse_xml failed for", getattr(part, 'partname', '<?>'), ":", e)
 def fill_docx(template_path, out_path, mapping, products=None):
     doc = Document(template_path)
+    if products is not None:
+        _ensure_second_table_product_blocks(doc, len(products))
     replace_everywhere(doc, mapping)
     buf = BytesIO()
     doc.save(buf)
@@ -2271,6 +2273,81 @@ def search_activities_for_id(page, txid: str) -> bool:
     except Exception as e:
         log(f"[search] error: {e}")
         return False
+def _row_has_productid_placeholder(row) -> bool:
+    t = _row_text(row)
+    return bool(re.search(r'\bproduct\s*id\b', t))
+def _table_is_first_products_table(tbl: Table) -> bool:
+    for r in tbl.rows:
+        if _looks_like_products_header_row(r):
+            return True
+    return False
+def _renumber_xml_placeholders(xml: str, src_idx: int, dst_idx: int) -> str:
+    gap = r'(?:\s|<[^>]*?>)*?'  # tolerate tags/runs
+    def w(s):  # tolerant words
+        return _split_tolerant(s)
+    bases = [
+        "analysis", "investigation",
+        "product id", "product_id",
+        "product desc", "product description", "product_desc",
+        "lot/serial number", "lot_serial_number",
+        "serial no/lot no", "serial_no_lot_no",
+        "serial or lot", "serial_or_lot",
+    ]
+    for base in bases:
+        pat = re.compile(
+            r'(?P<open>\{\{|\[\[)'+gap+
+            w(base)+gap+
+            r'(?:[_/]|'+gap+r')?'+gap+str(src_idx)+gap+
+            r'(?P<close>\}\}|\]\])',
+            re.I|re.S
+        )
+        xml = pat.sub(lambda m: f"{m.group('open')}{base} {dst_idx}{m.group('close')}", xml)
+    return xml
+def _find_second_table_and_blocks(doc: Document):
+    for tbl in doc.tables:
+        if _table_is_first_products_table(tbl):
+            continue
+        starts = [i for i, r in enumerate(tbl.rows) if _row_has_productid_placeholder(r)]
+        if not starts:
+            continue
+        whole_text = " ".join(_row_text(r) for r in tbl.rows)
+        maybe_analysisy = ("analysis" in whole_text) or ("investigation" in whole_text)
+        if not maybe_analysisy:
+            continue
+        blocks = []
+        for j, s_idx in enumerate(starts):
+            e_idx = (starts[j+1]-1) if (j+1 < len(starts)) else (len(tbl.rows)-1)
+            blocks.append((s_idx, e_idx))
+        return tbl, blocks
+    return None, []
+def _ensure_second_table_product_blocks(doc: Document, product_count: int):
+    tbl, blocks = _find_second_table_and_blocks(doc)
+    if not tbl or not blocks:
+        return
+    current = len(blocks)
+    if product_count == current:
+        return
+    def _delete_block(tbl: Table, start_idx: int, end_idx: int):
+        for i in range(end_idx, start_idx-1, -1):
+            _delete_row(tbl, i)
+    if product_count < current:
+        for b in range(current-1, product_count-1, -1):
+            s, e = blocks[b]
+            _delete_block(tbl, s, e)
+        return
+    last_s, last_e = blocks[-1]
+    try:
+        last_text = _row_text(tbl.rows[last_s])
+        m = re.search(r'\bproduct\s*id\s*([0-9]+)\b', last_text)
+        src_idx = int(m.group(1)) if m else current
+    except Exception:
+        src_idx = current
+    for new_i in range(current+1, product_count+1):
+        for r_idx in range(last_s, last_e+1):
+            tr = tbl.rows[r_idx]._tr
+            xml = tr.xml
+            xml2 = _renumber_xml_placeholders(xml, src_idx, new_i)
+            tbl._tbl.append(parse_xml(xml2))
 def read_analysis_summary_for_txid(page, txid: str) -> str:
     ok = search_activities_for_id(page, txid)
     if not ok:
@@ -2519,18 +2596,18 @@ def main():
                 inv_summary_lines.append(f"{txid}\n(No Investigation Summary found)")
         if inv_summary_lines:
             values["investigation_summary"] = "\n\n".join(inv_summary_lines)
-        for idx, p in enumerate(products[:3], start=1):
+        for idx, p in enumerate(products, start=1):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"] = (p.get("id") or code)
             values[f"product_desc_{idx}"]  = p.get("desc","")
             values[f"product_sn_{idx}"]    = p.get("sn","")
             values[f"product_lot_{idx}"]   = p.get("lot","")
             values[f"serial_or_lot_{idx}"] = " / ".join([s for s in [p.get('sn',''), p.get('lot','')] if s])
-            values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
-            values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
-            values['_product_count'] = len(products)
-            if not (values.get('ir_name') or '').strip():
-                values['ir_name'] = 'Customer'
+        values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
+        values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
+        values['_product_count'] = len(products)
+        if not (values.get('ir_name') or '').strip():
+            values['ir_name'] = 'Customer'
         if len(products) > 3:
             extras = [f"{p['id']} — {p['desc']}" for p in products[3:]]
             values.setdefault("product_extras", "\n".join(extras))
