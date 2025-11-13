@@ -23,9 +23,6 @@ def _join_serial_lot(p) -> str:
     return v or "Unknown"
 def _row_text(row) -> str:
     return " ".join(_cell_txt(c) for c in row.cells)
-def _row_contains_placeholders(row) -> bool:
-    t = _row_text(row)
-    return ("{{" in t) or ("[[" in t)
 def _looks_like_products_header_row(row) -> bool:
     cells = row.cells
     if len(cells) < 3:
@@ -178,7 +175,6 @@ import re
 from docx import Document
 def _norm_key(s: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', (s or '').strip().lower()).strip('_')
-_PLACEHOLDER_ANY = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I)
 def _build_alias_mapping(mapping: dict) -> dict:
     out = {}
     for k, v in mapping.items():
@@ -2056,26 +2052,6 @@ def set_search_scope_to_activities(page) -> bool:
     picked = _pick_dropdown_option(fr, "Activities")
     log(f"[scope] Set scope to Activities: {picked}")
     return picked
-def _find_global_search_input_anywhere(page):
-    selectors = [
-        "xpath=//input[contains(@id,'SearchValue') and contains(@class,'th-sif')]",
-        "xpath=//input[contains(@id,'SearchValue')]",
-        "xpath=//input[contains(@tempname,'search')]",
-        "css=input.th-sif"
-    ]
-    try:
-        loc, ctx, used = wait_find_in_any_frame(page, selectors, timeout_ms=7000, poll_ms=150)
-        log(f"[scope] Found global search input via: {used}")
-        return loc, ctx
-    except Exception:
-        return None, None
-def _submit_global_search(ctx, input_el):
-    try:
-        input_el.press("Enter")
-        return True
-    except Exception:
-        pass
-    return soft_click_go(ctx)
 def _find_global_search_input_in_frame(fr):
     sels = [
         "xpath=//input[contains(@id,'SearchValue') and contains(@class,'th-sif')]",
@@ -2185,23 +2161,15 @@ def _direct_set_objects_value(fr, value: str) -> bool:
             (id, val) => {
               const el = document.getElementById(id);
               if (!el) return false;
-              // Temporarily make it writable
               const wasRO = el.hasAttribute('readonly');
               if (wasRO) el.removeAttribute('readonly');
               const old = el.value;
               el.value = val;
-
-              // Fire native events
               el.dispatchEvent(new Event('input', { bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
-
-              // Try to call thtmlb hooks if present
               try { if (window.thtmlbAutoSave) thtmlbAutoSave(el); } catch (e) {}
               try { if (window.th_ddlb_onchange) th_ddlb_onchange(el); } catch (e) {}
-
-              // Blur/focus to commit
               try { el.blur(); el.focus(); } catch (e) {}
-
               if (wasRO) el.setAttribute('readonly','readonly');
               return true;
             }
@@ -2315,34 +2283,6 @@ def read_analysis_summary_for_txid(page, txid: str) -> str:
     return (txt or "").strip()
 def read_investigation_summary_for_txid(page, txid: str) -> str:
     return read_analysis_summary_for_txid(page, txid)
-def _remove_rb_reference_line(xml: str, rb_value: str) -> str:
-    if rb_value:  # there is a value; do nothing
-        return xml
-    rx_tr = re.compile(
-        r'<w:tr\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:tr>',
-        re.I
-    )
-    xml2, n_tr = rx_tr.subn('', xml)
-    if n_tr:
-        return xml2
-    rx_p = re.compile(
-        r'<w:p\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:p>',
-        re.I
-    )
-    xml3, n_p = rx_p.subn('', xml2)
-    if n_p:
-        return xml3
-    rx_sdt_small = re.compile(
-        r'(<w:sdt\b[^>]*>[\s\S]{0,4000}?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]{0,4000}?</w:sdt>)',
-        re.I
-    )
-    def _safe_sdt_sub(m):
-        sdt = m.group(1)
-        if re.search(r'\b(Dear\b|Conclusion:|Product Id|Lot No|Address|Date)\b', sdt, re.I):
-            return sdt
-        return ''  # safe to drop
-    xml4, n_sdt = rx_sdt_small.subn(_safe_sdt_sub, xml3, count=1)
-    return xml4
 def _apply_plural_s(xml: str, plural: bool) -> str:
     rx = re.compile(r'(\{\{|\[\[)\s*s\s*(\}\}|\]\])', re.I)
     return rx.sub('s' if plural else '', xml)
