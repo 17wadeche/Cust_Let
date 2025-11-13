@@ -186,6 +186,13 @@ def _build_alias_mapping(mapping: dict) -> dict:
         out[nk] = v
         if nk.endswith('_1'):
             out[nk[:-2]] = v
+    for i in range(1, 10):
+        a_under = f"analysis_{i}"; a_flat = f"analysis{i}"
+        if a_under in out and a_flat not in out: out[a_flat] = out[a_under]
+        if a_flat  in out and a_under not in out: out[a_under] = out[a_flat]
+        iv_under = f"investigation_{i}"; iv_flat = f"investigation{i}"
+        if iv_under in out and iv_flat not in out: out[iv_flat] = out[iv_under]
+        if iv_flat  in out and iv_under not in out: out[iv_under] = out[iv_flat]
     aliases = {
         'today_date': out.get('todays_date', ''),
         "today_s_date": out.get('todays_date', ''),
@@ -1578,6 +1585,71 @@ def summary_has_product_id(text: str, product_id: str) -> bool:
         return False
     pid = str(product_id).strip()
     return re.search(rf"\b{re.escape(pid)}\b", text, re.IGNORECASE) is not None
+def collect_investigations_by_product(page, root_frame, known_products):
+    id_by_code = {}
+    wanted_codes = set()
+    for p in known_products:
+        code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
+        if code:
+            wanted_codes.add(code)
+            pid = (p.get("id") or "").strip()
+            if pid:
+                id_by_code[code] = pid
+    if not click_left_nav_investigation(page):
+        return {(p.get("id") or p.get("code") or "").strip(): "" for p in known_products}
+    nav_fr = _find_leftnav_frame(page)
+    if not nav_fr:
+        nav_items = _scan_pa_anywhere(page, "Investigation")
+        items = [{"i": i, "text": txt, "code": extract_product_code(txt), "data_id": did, "el": a, "frame": fr}
+                 for i, (fr, a, txt, did) in enumerate(nav_items)]
+    else:
+        _ensure_section_expanded(page, "Investigations")
+        items = _enumerate_section_items(nav_fr, "Investigations")
+        if not items:
+            nav_items = _scan_pa_anywhere(page, "Investigation")
+            items = [{"i": i, "text": txt, "code": extract_product_code(txt), "data_id": did, "el": a, "frame": fr}
+                     for i, (fr, a, txt, did) in enumerate(nav_items)]
+    items = [it for it in items if (it.get("code","").upper() in wanted_codes)]
+    summaries_by_text = {}
+    for it in items:
+        anchors_now = _anchors_in_section(nav_fr, "Investigations") if nav_fr else None
+        target = anchors_now.nth(it["i"]) if (anchors_now and anchors_now.count() > it["i"]) else None
+        if (not target or not target.count()) and it.get("data_id") and nav_fr:
+            target = nav_fr.locator(
+                _section_anchor_xpath("Investigations") +
+                f"[contains(@data-trans-id,'{it['data_id']}') or contains(@data-transId,'{it['data_id']}') or contains(@data-transid,'{it['data_id']}')]"
+            ).first
+        if not target or not target.count():
+            target = it.get("el")
+        if not target or not target.count():
+            continue
+        prev_sig = _textinfo_signature(page)
+        if not robust_click_plus(target, it.get("frame") or nav_fr or page.main_frame):
+            continue
+        changed = wait_for_textinfo_change(page, prev_sig, timeout=10000)
+        if not changed:
+            try:
+                page.wait_for_timeout(350)
+            except Exception:
+                pass
+        txt = (read_analysis_summary_for_current_pli(page) or "").strip()
+        expected_pid = id_by_code.get((it.get("code") or "").upper(), "")
+        if txt and expected_pid and not summary_has_product_id(txt, expected_pid):
+            txt = ""
+        if txt:
+            summaries_by_text[it["text"]] = txt
+    results = {}
+    for p in known_products:
+        code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
+        best = ""
+        if code:
+            for t, s in summaries_by_text.items():
+                if code == (extract_product_code(t) or "").upper():
+                    best = s
+                    break
+        key = code or (p.get("id") or "") or p.get("desc","")
+        results[key] = best  # empty if nothing
+    return results
 def collect_product_analysis(page, root_frame, known_products):
     id_by_code = {}
     wanted_codes = set()
@@ -2448,6 +2520,22 @@ def main():
         log(f"[Dates] event_date={values.get('event_date','')}")
         log("[step 4] Product Line Items → all rows")
         products = read_all_products(page, frame)
+        pa_by_product = collect_product_analysis(page, frame, products)
+        inv_by_product = collect_investigations_by_product(page, frame, products)
+        DEFAULT_NO_ANALYSIS = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
+        for idx, p in enumerate(products, start=1):
+            code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
+            key  = code or (p.get("id") or "") or p.get("desc","")
+            desc = (p.get("desc") or "").strip()
+            pa_text = (pa_by_product.get(key) or "").strip()
+            if pa_text and pa_text != DEFAULT_NO_ANALYSIS:
+                analysis_block = (f"{desc} was received for evaluation. "
+                                f"Examination of the sample is described below.\n\n{pa_text}").strip()
+            else:
+                analysis_block = DEFAULT_NO_ANALYSIS
+            values[f"analysis{idx}"] = analysis_block
+            inv_text = (inv_by_product.get(key) or "").strip()
+            values[f"investigation{idx}"] = inv_text
         log(f"[PLI] rows detected: {len(products)}")
         log("[step 5] Text Info → event_description")
         prev_sig = _textinfo_signature(page)
