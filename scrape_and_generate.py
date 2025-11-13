@@ -127,47 +127,57 @@ def _build_alias_mapping(mapping: dict) -> dict:
         'product_desc': out.get('product_desc_1', ''),
         'lot_serial_number': out.get('serial_or_lot_1', ''),
         'lot_serial_no': out.get('serial_or_lot_1', ''),
+        'lot/serial number': out.get('serial_or_lot_1', ''),
+        'serial no/lot no': out.get('serial_or_lot_1', ''), 
         'serial_no_lot_no': out.get('serial_or_lot_1', ''),
     }
     out.update({k: v for k, v in aliases.items() if v})
     return out
 def _split_tolerant(label: str) -> str:
-    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'
-    label = re.sub(r'\s+', ' ', label.strip())
+    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'        # tolerate any tags/formatting
+    tokens = [t for t in re.split(r'[^A-Za-z0-9]+', label.strip()) if t]
+    if not tokens:
+        return ''
+    sep = r'(?:\s|[/\-\._]|' + tag_gap + r')+'
     parts = []
-    for ch in label:
-        if ch == ' ':
-            parts.append(r'\s+')
-        else:
-            parts.append(re.escape(ch))
-        parts.append(tag_gap)        # <-- allow unlimited tags between characters
-    return ''.join(parts)
+    for ti, tok in enumerate(tokens):
+        char_pat = tag_gap.join(re.escape(c) for c in tok)
+        parts.append(char_pat)
+        if ti < len(tokens) - 1:
+            parts.append(sep)
+    return tag_gap + ''.join(parts) + tag_gap
 def _patterns_for_key(human_label: str):
-    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'     # any intervening tags/formatting
+    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'            # between any two characters
     inner   = _split_tolerant(human_label)
-    square = re.compile(r'\[\[\s*' + tag_gap + inner + r'\s*' + tag_gap + r'\]\]', re.I)
-    curly  = re.compile(r'\{\{\s*' + tag_gap + inner + r'\s*' + tag_gap + r'\}\}', re.I)
+    open_curly  = r'\{' + tag_gap + r'\{'
+    close_curly = r'\}' + tag_gap + r'\}'
+    open_square = r'\[' + tag_gap + r'\['
+    close_square= r'\]' + tag_gap + r'\]'
+    curly  = re.compile(open_curly  + r'\s*' + inner + r'\s*' + close_curly , re.I)
+    square = re.compile(open_square + r'\s*' + inner + r'\s*' + close_square, re.I)
     return square, curly
 def _xml_replace_all(xml: str, mapping: dict) -> str:
+    _PLACEHOLDER_ANY = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I|re.S)
     def _quick(m):
         return mapping.get(_norm_key(m.group(2)), '')
-    xml = _PLACEHOLDER_ANY.sub(lambda m: _quick(m), xml)
+    xml_new = _PLACEHOLDER_ANY.sub(lambda m: _quick(m), xml)
     keys_seen = set()
     for raw_key, value in mapping.items():
         if not value:
             continue
-        humanish = raw_key.replace('_', ' ').strip()
-        for label in {raw_key, humanish}:
-            if label in keys_seen: 
+        candidates = {raw_key, raw_key.replace('_', ' ')}
+        for label in candidates:
+            if label in keys_seen:
                 continue
             keys_seen.add(label)
-            for pat in _patterns_for_key(label):
-                xml = pat.sub(value, xml)
-    return xml
+            pat_sq, pat_cu = _patterns_for_key(label)
+            xml_new = pat_sq.sub(value, xml_new)
+            xml_new = pat_cu.sub(value, xml_new)
+    return xml_new
 def replace_everywhere(doc: Document, mapping: dict):
     resolved = _build_alias_mapping(mapping)
     pkg = doc.part.package
-    for part in pkg.parts:   # includes document.xml, headers, footers, footnotes, etc.
+    for part in pkg.parts:
         ct = getattr(part, 'content_type', '')
         if not ct or 'xml' not in ct:
             continue
