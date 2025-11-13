@@ -6,6 +6,57 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from docx import Document
 from docx.oxml import parse_xml
 from datetime import datetime
+from docx.table import _Cell, Table
+def _norm(s: str) -> str:
+    return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
+def _cell_txt(cell: _Cell) -> str:
+    return _norm(cell.text)
+def _delete_row(table: Table, row_idx: int):
+    tr = table.rows[row_idx]._tr
+    table._tbl.remove(tr)
+def _join_serial_lot(p) -> str:
+    sn = (p.get('sn') or '').strip()
+    lot = (p.get('lot') or '').strip()
+    v = " / ".join([x for x in (sn, lot) if x])
+    return v or "Unknown"
+def _update_products_table(doc: Document, products: list):
+    want_hdrs = [
+        (_norm("Product Id"), _norm("Product Description"), _norm("Serial No/Lot No")),
+        (_norm("Product ID"), _norm("Product Description"), _norm("Serial No or Lot No")),
+    ]
+    def _looks_like_hdr_cells(cells):
+        if len(cells) < 3:
+            return False
+        tup = (_cell_txt(cells[0]), _cell_txt(cells[1]), _cell_txt(cells[2]))
+        for _wh in want_hdrs:
+            ok0 = tup[0].startswith("product")                 # tolerant “Product Id/ID”
+            ok1 = ("product" in tup[1] and "description" in tup[1])
+            ok2 = ("serial" in tup[2] and "lot" in tup[2])     # tolerate slashes/spacing
+            if ok0 and ok1 and ok2:
+                return True
+        return False
+    target_table = None
+    header_row_idx = None
+    for tbl in doc.tables:
+        for r_idx, row in enumerate(tbl.rows):
+            if _looks_like_hdr_cells(row.cells):
+                target_table = tbl
+                header_row_idx = r_idx
+                break
+        if target_table:
+            break
+    if not target_table:
+        print("[DOCX] Products table not found; skipping dynamic rows.")
+        return
+    for i in range(len(target_table.rows) - 1, header_row_idx, -1):
+        _delete_row(target_table, i)
+    for p in products:
+        row = target_table.add_row()
+        cells = row.cells
+        pid = (p.get("id") or p.get("code") or "").strip()
+        cells[0].text = pid
+        cells[1].text = (p.get("desc") or "").strip()
+        cells[2].text = _join_serial_lot(p)
 def ts():
     return time.strftime("%Y-%m-%d %H:%M:%S")
 def log(msg):
@@ -195,6 +246,23 @@ _PLACEHOLDER_FINDER = re.compile(
     r'(?P<close>\}\}|\]\])',                # }} or ]]
     re.I | re.S
 )
+def _remove_rb_reference_block_docx(doc: Document, rb_value: str):
+    if rb_value:
+        return
+    def _norm_txt(s): 
+        return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
+    for tbl in doc.tables:
+        rows_to_del = []
+        for i, row in enumerate(tbl.rows):
+            row_txt = " ".join(_norm_txt(c.text) for c in row.cells)
+            if "rb reference" in row_txt:
+                rows_to_del.append(i)
+        for i in reversed(rows_to_del):
+            tr = tbl.rows[i]._tr
+            tbl._tbl.remove(tr)
+    for p in list(doc.paragraphs):
+        if "rb reference" in _norm_txt(p.text):
+            p._element.getparent().remove(p._element)
 def replace_everywhere(doc: Document, mapping: dict):
     resolved = _build_alias_mapping(mapping)
     for part in doc.part.package.parts:
@@ -213,23 +281,20 @@ def replace_everywhere(doc: Document, mapping: dict):
             for s in sorted(set(ph)):
                 print("   -", s)
         new_xml = _xml_replace_all(xml, resolved)
-        after_xml = _remove_rb_reference_line(new_xml, resolved.get('rb_reference', ''))
-        if re.search(r'Dear\s+[^<]*\{\{?\s*ir[_ ]?name', after_xml, re.I) or 'Dear ' in after_xml:
-            new_xml = after_xml
-        else:
-            print("[DOCX] RB Reference removal skipped to avoid over-deletion.")
         plural = (mapping.get('_product_count') or 0) > 1
         new_xml = _apply_plural_s(new_xml, plural)
-
         if new_xml != xml:
             print("[DOCX] replacements applied in", getattr(part, 'partname', '<?>'))
             try:
                 part._element = parse_xml(new_xml)
             except Exception as e:
                 print("[DOCX] parse_xml failed for", getattr(part, 'partname', '<?>'), ":", e)
-def fill_docx(template_path, out_path, mapping):
+def fill_docx(template_path, out_path, mapping, products=None):
     doc = Document(template_path)
     replace_everywhere(doc, mapping)
+    _remove_rb_reference_block_docx(doc, (mapping.get('rb_reference') or '').strip())
+    if products is not None:
+        _update_products_table(doc, products)
     doc.save(out_path)
 def find_app_frame(page, frame_name_regex=None, url_regex=None):
     if url_regex:
@@ -2406,7 +2471,7 @@ def main():
         log(json.dumps(values, indent=2))    
         out_name = cfg.get('output_name_pattern', 'Customer_Letter_{complaint_id}.docx').format(**values)
         out_path = out_dir / out_name
-        fill_docx(str(template_path), str(out_path), values)
+        fill_docx(str(template_path), str(out_path), values, products)
         log(f"Generated: {out_path}")
         browser.close()
 if __name__ == "__main__":
