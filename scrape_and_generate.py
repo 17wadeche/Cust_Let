@@ -215,7 +215,14 @@ def replace_everywhere(doc: Document, mapping: dict):
             for s in sorted(set(ph)):
                 print("   -", s)
         new_xml = _xml_replace_all(xml, resolved)
-        new_xml = _remove_rb_reference_line(new_xml, resolved.get('rb_reference', ''))
+        after_xml = _remove_rb_reference_line(new_xml, resolved.get('rb_reference', ''))
+        if re.search(r'Dear\s+[^<]*\{\{?\s*ir[_ ]?name', after_xml, re.I) or 'Dear ' in after_xml:
+            new_xml = after_xml
+        else:
+            print("[DOCX] RB Reference removal skipped to avoid over-deletion.")
+        plural = (mapping.get('_product_count') or 0) > 1
+        new_xml = _apply_plural_s(new_xml, plural)
+
         if new_xml != xml:
             print("[DOCX] replacements applied in", getattr(part, 'partname', '<?>'))
             try:
@@ -2135,29 +2142,36 @@ def read_analysis_summary_for_txid(page, txid: str) -> str:
 def read_investigation_summary_for_txid(page, txid: str) -> str:
     return read_analysis_summary_for_txid(page, txid)
 def _remove_rb_reference_line(xml: str, rb_value: str) -> str:
-    if rb_value:  # nothing to remove
+    if rb_value:  # there is a value; do nothing
         return xml
-    rx_sdt = re.compile(
-        r'<w:sdt\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:sdt>',
-        re.I
-    )
-    xml2, n1 = rx_sdt.subn('', xml)
-    if n1:
-        return xml2
     rx_tr = re.compile(
         r'<w:tr\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:tr>',
         re.I
     )
-    xml3, n2 = rx_tr.subn('', xml2)
-    if n2:
-        return xml3
+    xml2, n_tr = rx_tr.subn('', xml)
+    if n_tr:
+        return xml2
     rx_p = re.compile(
         r'<w:p\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:p>',
         re.I
     )
-    xml4, _ = rx_p.subn('', xml3)
+    xml3, n_p = rx_p.subn('', xml2)
+    if n_p:
+        return xml3
+    rx_sdt_small = re.compile(
+        r'(<w:sdt\b[^>]*>[\s\S]{0,4000}?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]{0,4000}?</w:sdt>)',
+        re.I
+    )
+    def _safe_sdt_sub(m):
+        sdt = m.group(1)
+        if re.search(r'\b(Dear\b|Conclusion:|Product Id|Lot No|Address|Date)\b', sdt, re.I):
+            return sdt
+        return ''  # safe to drop
+    xml4, n_sdt = rx_sdt_small.subn(_safe_sdt_sub, xml3, count=1)
     return xml4
-
+def _apply_plural_s(xml: str, plural: bool) -> str:
+    rx = re.compile(r'(\{\{|\[\[)\s*s\s*(\}\}|\]\])', re.I)
+    return rx.sub('s' if plural else '', xml)
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -2339,7 +2353,8 @@ def main():
         if not desc and wait_for_textinfo_change(page, prev_sig, timeout=8000):
             desc = read_event_description(page, frame)
         if desc:
-            desc = re.sub(r'^\s*it\s+was\s+reported[,:-]?\s*', '', desc, flags=re.I).lstrip()
+            desc = re.sub(r'^\s*it\s+was\s+reported(?:\s+that)?[,:-]?\s*', '', desc, flags=re.I).lstrip()
+            desc = re.sub(r'([.!?])\1+', r'\1', desc)
             values["event_description"] = desc
         log(f"[Text] description length: {len(values.get('event_description',''))}")
         log("[step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs")
@@ -2383,6 +2398,9 @@ def main():
             values[f"serial_or_lot_{idx}"] = " / ".join([s for s in [p.get('sn',''), p.get('lot','')] if s])
             values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
             values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
+            values['_product_count'] = len(products)
+            if not (values.get('ir_name') or '').strip():
+                values['ir_name'] = 'Customer'
         if len(products) > 3:
             extras = [f"{p['id']} — {p['desc']}" for p in products[3:]]
             values.setdefault("product_extras", "\n".join(extras))
