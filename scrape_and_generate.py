@@ -7,6 +7,7 @@ from docx import Document
 from docx.oxml import parse_xml
 from datetime import datetime
 from docx.table import _Cell, Table
+from docx.oxml.ns import qn
 def _norm(s: str) -> str:
     return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
 def _cell_txt(cell: _Cell) -> str:
@@ -19,44 +20,62 @@ def _join_serial_lot(p) -> str:
     lot = (p.get('lot') or '').strip()
     v = " / ".join([x for x in (sn, lot) if x])
     return v or "Unknown"
-def _update_products_table(doc: Document, products: list):
-    want_hdrs = [
-        (_norm("Product Id"), _norm("Product Description"), _norm("Serial No/Lot No")),
-        (_norm("Product ID"), _norm("Product Description"), _norm("Serial No or Lot No")),
-    ]
-    def _looks_like_hdr_cells(cells):
-        if len(cells) < 3:
-            return False
-        tup = (_cell_txt(cells[0]), _cell_txt(cells[1]), _cell_txt(cells[2]))
-        for _wh in want_hdrs:
-            ok0 = tup[0].startswith("product")                 # tolerant “Product Id/ID”
-            ok1 = ("product" in tup[1] and "description" in tup[1])
-            ok2 = ("serial" in tup[2] and "lot" in tup[2])     # tolerate slashes/spacing
-            if ok0 and ok1 and ok2:
-                return True
+def _row_text(row) -> str:
+    return " ".join(_cell_txt(c) for c in row.cells)
+def _row_contains_placeholders(row) -> bool:
+    t = _row_text(row)
+    return ("{{" in t) or ("[[" in t)
+def _looks_like_products_header_row(row) -> bool:
+    cells = row.cells
+    if len(cells) < 3:
         return False
-    target_table = None
-    header_row_idx = None
+    a, b, c = _cell_txt(cells[0]), _cell_txt(cells[1]), _cell_txt(cells[2])
+    ok0 = a.startswith("product")
+    ok1 = ("product" in b and "description" in b)
+    ok2 = ("serial" in c and "lot" in c)
+    return ok0 and ok1 and ok2
+def _find_products_table(doc: Document):
     for tbl in doc.tables:
         for r_idx, row in enumerate(tbl.rows):
-            if _looks_like_hdr_cells(row.cells):
-                target_table = tbl
-                header_row_idx = r_idx
-                break
-        if target_table:
-            break
-    if not target_table:
+            if _looks_like_products_header_row(row):
+                return tbl, r_idx
+        for r_idx, row in enumerate(tbl.rows):
+            t = _row_text(row)
+            if "product id2" in t or "product_desc2" in t.replace(" ", "_") or "{{product" in t or "[[product" in t:
+                return tbl, 0
+    return None, None
+def _clear_rows_after(tbl: Table, header_row_idx: int):
+    for i in range(len(tbl.rows) - 1, header_row_idx, -1):
+        _delete_row(tbl, i)
+def _fill_row(cells, p):
+    pid = (p.get("id") or p.get("code") or "").strip()
+    cells[0].text = pid
+    cells[1].text = (p.get("desc") or "").strip()
+    cells[2].text = _join_serial_lot(p)
+def _update_products_table(doc: Document, products: list):
+    tbl, hdr = _find_products_table(doc)
+    if not tbl:
         print("[DOCX] Products table not found; skipping dynamic rows.")
         return
-    for i in range(len(target_table.rows) - 1, header_row_idx, -1):
-        _delete_row(target_table, i)
+    body_indices = list(range(hdr + 1, len(tbl.rows)))
+    if not products:
+        for i in reversed(body_indices):
+            _delete_row(tbl, i)
+        return
+    if len(products) == 1:
+        if body_indices:
+            first_idx = body_indices[0]
+            _fill_row(tbl.rows[first_idx].cells, products[0])
+            for i in reversed(body_indices[1:]):
+                _delete_row(tbl, i)
+        else:
+            row = tbl.add_row()
+            _fill_row(row.cells, products[0])
+        return
+    _clear_rows_after(tbl, hdr)
     for p in products:
-        row = target_table.add_row()
-        cells = row.cells
-        pid = (p.get("id") or p.get("code") or "").strip()
-        cells[0].text = pid
-        cells[1].text = (p.get("desc") or "").strip()
-        cells[2].text = _join_serial_lot(p)
+        row = tbl.add_row()
+        _fill_row(row.cells, p)
 def ts():
     return time.strftime("%Y-%m-%d %H:%M:%S")
 def log(msg):
@@ -249,19 +268,27 @@ _PLACEHOLDER_FINDER = re.compile(
 def _remove_rb_reference_block_docx(doc: Document, rb_value: str):
     if rb_value:
         return
-    def _norm_txt(s): 
+    def _norm_txt(s):
         return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
+    def _is_rb_line_text(t: str) -> bool:
+        t = _norm_txt(t)
+        if not t:
+            return False
+        if re.search(r'\brb\s*ref(erence)?\b', t):
+            return True
+        return False
     for tbl in doc.tables:
         rows_to_del = []
         for i, row in enumerate(tbl.rows):
             row_txt = " ".join(_norm_txt(c.text) for c in row.cells)
-            if "rb reference" in row_txt:
+            if _is_rb_line_text(row_txt):
                 rows_to_del.append(i)
         for i in reversed(rows_to_del):
             tr = tbl.rows[i]._tr
             tbl._tbl.remove(tr)
     for p in list(doc.paragraphs):
-        if "rb reference" in _norm_txt(p.text):
+        txt = p.text or ""
+        if _is_rb_line_text(txt) or ("{{" in txt.lower() and "ref" in txt.lower()):
             p._element.getparent().remove(p._element)
 def replace_everywhere(doc: Document, mapping: dict):
     resolved = _build_alias_mapping(mapping)
