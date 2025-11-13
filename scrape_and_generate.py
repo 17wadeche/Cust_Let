@@ -9,6 +9,8 @@ from docx.oxml import parse_xml
 from datetime import datetime
 from docx.table import _Cell, Table
 from docx.oxml.ns import qn
+ENDS_WITH_PRODUCT     = "substring(@id, string-length(@id) - string-length('-Product') + 1) = '-Product'"
+ENDS_WITH_DESCRIPTION = "substring(@id, string-length(@id) - string-length('-Description') + 1) = '-Description'"
 def _norm(s: str) -> str:
     return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
 def _cell_txt(cell: _Cell) -> str:
@@ -661,23 +663,24 @@ def read_all_products(page, root_frame):
             for i in range(n):
                 row = rows.nth(i)
                 prod_cell = row.locator(
-                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]"
+                    f"xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and {ENDS_WITH_PRODUCT}]"
                 ).first
                 desc_cell = row.locator(
-                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Description')]"
+                    f"xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and {ENDS_WITH_DESCRIPTION}]"
                 ).first
                 pid = ""
                 if prod_cell.count():
-                    ordered_link = prod_cell.locator("xpath=.//a[contains(@id,'ordered_prod')]").first
-                    if ordered_link.count():
-                        pid = _get_attr_or_text(ordered_link)
-                    else:
-                        pid = ""
+                    a = prod_cell.locator("xpath=.//a[contains(@id,'ordered_prod')]").first
+                    if a.count():
+                        pid = _get_attr_or_text(a)
                     if not pid:
-                        pid_text = _get_attr_or_text(prod_cell)
-                        if pid_text:
-                            pid = extract_product_code(pid_text)
-                pdesc = clean(desc_cell.inner_text()) if desc_cell.count() else ""
+                        pid = _get_attr_or_text(prod_cell)
+                if pid and not re.search(r"[A-Za-z]", pid):
+                    pid = ""
+                pdesc = ""
+                if desc_cell.count():
+                    a = desc_cell.locator("xpath=.//a").first
+                    pdesc = _get_attr_or_text(a) if a.count() else _get_attr_or_text(desc_cell)
                 pcode = pid or extract_product_code(pdesc)
                 sn_candidates = [
                     "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN')]",
@@ -709,9 +712,7 @@ def read_all_products(page, root_frame):
     fr = find_frame_with(page, "xpath=//*[contains(@id,'btadmini_table')]")
     if not fr:
         return []
-    rows = fr.locator(
-        "xpath=.//tr[.//a[contains(@id,'ordered_prod')] or .//a[contains(@id,'number_int')]]"
-    )
+    rows = fr.locator("xpath=.//tr[.//a[contains(@id,'ordered_prod')]]")
     n = rows.count()
     out = []
     for i in range(n):
