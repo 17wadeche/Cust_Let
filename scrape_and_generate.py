@@ -2593,22 +2593,35 @@ def main():
             values.setdefault("investigation_1", "")
         for idx, p in enumerate(products, start=1):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
-            values[f"product_id_{idx}"] = (p.get("id") or code)
-            values[f"product_desc_{idx}"]  = p.get("desc","")
+            values[f"product_id_{idx}"]   = (p.get("id") or code)
+            values[f"product_desc_{idx}"] = p.get("desc", "")
             sn  = (p.get("sn", "") or "").strip()
             lot = (p.get("lot", "") or "").strip()
-            values[f"product_sn_{idx}"]    = p.get("sn","")
-            values[f"product_lot_{idx}"]   = p.get("lot","")
+            values[f"product_sn_{idx}"]  = sn
+            values[f"product_lot_{idx}"] = lot
             if sn and lot:
-                display_val = f"SN: {sn} / LN: {lot}"
+                first_table_display = f"SN: {sn} / LN: {lot}"
             elif sn:
-                display_val = f"SN: {sn}"
+                first_table_display = f"SN: {sn}"
             elif lot:
-                display_val = f"LN: {lot}"
+                first_table_display = f"LN: {lot}"
             else:
-                display_val = ""
-            values[f"serial_or_lot_{idx}"] = display_val
-            values[f"serial_or_lot_{idx}"] = " / ".join([s for s in [p.get('sn',''), p.get('lot','')] if s])
+                first_table_display = ""
+            values[f"serial_or_lot_{idx}"] = first_table_display
+            if sn and not lot:
+                label_2 = "Serial No:"
+                value_2 = sn
+            elif lot and not sn:
+                label_2 = "Lot No:"
+                value_2 = lot
+            elif sn and lot:
+                label_2 = "Serial/Lot No:"
+                value_2 = f"{sn} / {lot}"
+            else:
+                label_2 = ""
+                value_2 = ""
+            values[f"serial_or_lot_label_{idx}"] = label_2
+            values[f"serial_or_lot_value_{idx}"] = value_2
         values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
         values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
         values['_product_count'] = len(products)
