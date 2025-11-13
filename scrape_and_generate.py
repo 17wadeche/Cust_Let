@@ -4,6 +4,7 @@ from datetime import date
 import yaml
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from docx import Document
+from docx.oxml import parse_xml
 from datetime import datetime
 def ts():
     return time.strftime("%Y-%m-%d %H:%M:%S")
@@ -191,9 +192,12 @@ def replace_everywhere(doc: Document, mapping: dict):
         if 'xml' not in getattr(part, 'content_type', ''):
             continue
         try:
-            xml = part.blob.decode('utf-8')
+            xml = part._element.xml  # authoritative source
         except Exception:
-            continue
+            try:
+                xml = part.blob.decode('utf-8', errors='ignore')
+            except Exception:
+                continue
         ph = _list_placeholders(xml)
         if ph:
             print("[DOCX] placeholders detected in part:", getattr(part, 'partname', '<?>'))
@@ -202,7 +206,10 @@ def replace_everywhere(doc: Document, mapping: dict):
         new_xml = _xml_replace_all(xml, resolved)
         if new_xml != xml:
             print("[DOCX] replacements applied in", getattr(part, 'partname', '<?>'))
-        part._blob = new_xml.encode('utf-8') if new_xml != xml else part._blob
+            try:
+                part._element = parse_xml(new_xml)
+            except Exception as e:
+                print("[DOCX] parse_xml failed for", getattr(part, 'partname', '<?>'), ":", e)
 def fill_docx(template_path, out_path, mapping):
     doc = Document(template_path)
     replace_everywhere(doc, mapping)
