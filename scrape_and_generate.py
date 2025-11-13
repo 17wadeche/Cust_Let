@@ -117,7 +117,7 @@ def _build_alias_mapping(mapping: dict) -> dict:
             out[nk[:-2]] = v
     aliases = {
         'today_date': out.get('todays_date', ''),
-        "today_s_date": out.get('todays_date', ''),  # <- add this line
+        "today_s_date": out.get('todays_date', ''),
         'ir_name': out.get('ir_name', ''),
         'ir_with_address': out.get('ir_with_address', ''),
         'event_date': out.get('event_date', ''),
@@ -129,8 +129,19 @@ def _build_alias_mapping(mapping: dict) -> dict:
         'lot_serial_number': out.get('serial_or_lot_1', ''),
         'lot_serial_no': out.get('serial_or_lot_1', ''),
         'lot/serial number': out.get('serial_or_lot_1', ''),
-        'serial no/lot no': out.get('serial_or_lot_1', ''), 
+        'serial no/lot no': out.get('serial_or_lot_1', ''),
         'serial_no_lot_no': out.get('serial_or_lot_1', ''),
+        'pe_number': out.get('complaint_id', ''),
+        'pe number': out.get('complaint_id', ''),
+        'product_id2': out.get('product_id_2', ''),
+        'product id2': out.get('product_id_2', ''),
+        'product_desc2': out.get('product_desc_2', ''),
+        'product desc2': out.get('product_desc_2', ''),
+        'product description2': out.get('product_desc_2', ''),
+        'lot_serial_number2': out.get('serial_or_lot_2', ''),
+        'lot/serial number2': out.get('serial_or_lot_2', ''),
+        'serial no/lot no2': out.get('serial_or_lot_2', ''),
+        'serial_no_lot_no2': out.get('serial_or_lot_2', ''),
     }
     out.update({k: v for k, v in aliases.items() if v})
     return out
@@ -192,7 +203,7 @@ def replace_everywhere(doc: Document, mapping: dict):
         if 'xml' not in getattr(part, 'content_type', ''):
             continue
         try:
-            xml = part._element.xml  # authoritative source
+            xml = part._element.xml
         except Exception:
             try:
                 xml = part.blob.decode('utf-8', errors='ignore')
@@ -204,6 +215,7 @@ def replace_everywhere(doc: Document, mapping: dict):
             for s in sorted(set(ph)):
                 print("   -", s)
         new_xml = _xml_replace_all(xml, resolved)
+        new_xml = _remove_rb_reference_line(new_xml, resolved.get('rb_reference', ''))
         if new_xml != xml:
             print("[DOCX] replacements applied in", getattr(part, 'partname', '<?>'))
             try:
@@ -2122,6 +2134,20 @@ def read_analysis_summary_for_txid(page, txid: str) -> str:
     return (txt or "").strip()
 def read_investigation_summary_for_txid(page, txid: str) -> str:
     return read_analysis_summary_for_txid(page, txid)
+def _remove_rb_reference_line(xml: str, rb_value: str) -> str:
+    if rb_value:
+        return xml
+    rx_tr = re.compile(
+        r'<w:tr\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:tr>',
+        re.I
+    )
+    xml = rx_tr.sub('', xml)
+    rx_p = re.compile(
+        r'<w:p\b[^>]*>[\s\S]*?(?:RB\s*Reference(?:\s*#)?|\[\[\s*RB\s*Reference[\s\S]*?\]\]|\{\{\s*RB\s*Reference[\s\S]*?\}\})[\s\S]*?</w:p>',
+        re.I
+    )
+    xml = rx_p.sub('', xml)
+    return xml
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -2303,6 +2329,7 @@ def main():
         if not desc and wait_for_textinfo_change(page, prev_sig, timeout=8000):
             desc = read_event_description(page, frame)
         if desc:
+            desc = re.sub(r'^\s*it\s+was\s+reported[,:-]?\s*', '', desc, flags=re.I).lstrip()
             values["event_description"] = desc
         log(f"[Text] description length: {len(values.get('event_description',''))}")
         log("[step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs")
