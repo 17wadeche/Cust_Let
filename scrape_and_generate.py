@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import date
 import yaml
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from io import BytesIO
 from docx import Document
 from docx.oxml import parse_xml
 from datetime import datetime
@@ -213,6 +214,13 @@ def _build_alias_mapping(mapping: dict) -> dict:
         'serial no/lot no2': out.get('serial_or_lot_2', ''),
         'serial_no_lot_no2': out.get('serial_or_lot_2', ''),
     }
+    if out.get('rb_reference'):
+        aliases.update({
+            'rb reference': out['rb_reference'],
+            'rb_reference': out['rb_reference'],
+            'ref number':   out['rb_reference'],
+            'ref_number':   out['rb_reference'],
+        })
     out.update({k: v for k, v in aliases.items() if v})
     return out
 def _split_tolerant(label: str) -> str:
@@ -319,6 +327,10 @@ def replace_everywhere(doc: Document, mapping: dict):
 def fill_docx(template_path, out_path, mapping, products=None):
     doc = Document(template_path)
     replace_everywhere(doc, mapping)
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    doc = Document(buf)
     _remove_rb_reference_block_docx(doc, (mapping.get('rb_reference') or '').strip())
     if products is not None:
         _update_products_table(doc, products)
