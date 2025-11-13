@@ -134,60 +134,75 @@ def _build_alias_mapping(mapping: dict) -> dict:
     out.update({k: v for k, v in aliases.items() if v})
     return out
 def _split_tolerant(label: str) -> str:
-    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'        # tolerate any tags/formatting
-    tokens = [t for t in re.split(r'[^A-Za-z0-9]+', label.strip()) if t]
-    if not tokens:
-        return ''
-    sep = r'(?:\s|[/\-\._]|' + tag_gap + r')+'
+    gap = r'(?:\s|<[^>]*?>)*?'    # non-greedy: spans across run/para tags, hyperlinks, etc.
+    toks = [t for t in re.split(r'[^A-Za-z0-9]+', (label or '').strip()) if t]
+    if not toks: return ''
+    sep = r'(?:\s|[/\-\._]|<[^>]*?>)*?'
     parts = []
-    for ti, tok in enumerate(tokens):
-        char_pat = tag_gap.join(re.escape(c) for c in tok)
-        parts.append(char_pat)
-        if ti < len(tokens) - 1:
+    for i, tok in enumerate(toks):
+        parts.append(gap.join(re.escape(c) for c in tok))
+        if i < len(toks) - 1:
             parts.append(sep)
-    return tag_gap + ''.join(parts) + tag_gap
+    return gap + ''.join(parts) + gap
 def _patterns_for_key(human_label: str):
-    tag_gap = r'(?:\s*(?:<[^>]+>)\s*)*'            # between any two characters
-    inner   = _split_tolerant(human_label)
-    open_curly  = r'\{' + tag_gap + r'\{'
-    close_curly = r'\}' + tag_gap + r'\}'
-    open_square = r'\[' + tag_gap + r'\['
-    close_square= r'\]' + tag_gap + r'\]'
-    curly  = re.compile(open_curly  + r'\s*' + inner + r'\s*' + close_curly , re.I)
-    square = re.compile(open_square + r'\s*' + inner + r'\s*' + close_square, re.I)
-    return square, curly
+    gap = r'(?:\s|<[^>]*?>)*?'
+    inner = _split_tolerant(human_label)
+    flags = re.I | re.S
+    return (
+        re.compile(r'\[' + gap + r'\[' + r'\s*' + inner + r'\s*' + r'\]' + gap + r'\]', flags),
+        re.compile(r'\{' + gap + r'\{' + r'\s*' + inner + r'\s*' + r'\}' + gap + r'\}', flags),
+    )
 def _xml_replace_all(xml: str, mapping: dict) -> str:
-    _PLACEHOLDER_ANY = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I|re.S)
+    fast = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I | re.S)
     def _quick(m):
-        return mapping.get(_norm_key(m.group(2)), '')
-    xml_new = _PLACEHOLDER_ANY.sub(lambda m: _quick(m), xml)
+        k = _norm_key(m.group(2))
+        return mapping[k] if k in mapping and mapping[k] not in (None, '') else m.group(0)
+    xml_new = fast.sub(_quick, xml)
     keys_seen = set()
     for raw_key, value in mapping.items():
         if not value:
             continue
-        candidates = {raw_key, raw_key.replace('_', ' ')}
-        for label in candidates:
-            if label in keys_seen:
+        for label in {raw_key, raw_key.replace('_', ' ')}:
+            if label in keys_seen: 
                 continue
             keys_seen.add(label)
             pat_sq, pat_cu = _patterns_for_key(label)
             xml_new = pat_sq.sub(value, xml_new)
             xml_new = pat_cu.sub(value, xml_new)
     return xml_new
+def _peek_brace_context(xml: str, needle='{', width=180):
+    i = xml.find(needle)
+    if i == -1:
+        return ''
+    start = max(0, i - width)
+    end   = min(len(xml), i + width)
+    return xml[start:end]
+_PLACEHOLDER_FINDER = re.compile(
+    r'(?P<open>\{\{|\[\[)'                  # {{ or [[
+    r'(?:\s|<[^>]*?>)*?'                    # gaps (tags/whitespace) between open and label
+    r'(?P<label>[^}\]]{1,120}?)'            # the label (up to 120 chars)
+    r'(?:\s|<[^>]*?>)*?'
+    r'(?P<close>\}\}|\]\])',                # }} or ]]
+    re.I | re.S
+)
 def replace_everywhere(doc: Document, mapping: dict):
     resolved = _build_alias_mapping(mapping)
-    pkg = doc.part.package
-    for part in pkg.parts:
-        ct = getattr(part, 'content_type', '')
-        if not ct or 'xml' not in ct:
+    for part in doc.part.package.parts:
+        if 'xml' not in getattr(part, 'content_type', ''):
             continue
         try:
             xml = part.blob.decode('utf-8')
         except Exception:
             continue
+        ph = _list_placeholders(xml)
+        if ph:
+            print("[DOCX] placeholders detected in part:", getattr(part, 'partname', '<?>'))
+            for s in sorted(set(ph)):
+                print("   -", s)
         new_xml = _xml_replace_all(xml, resolved)
         if new_xml != xml:
-            part._blob = new_xml.encode('utf-8')
+            print("[DOCX] replacements applied in", getattr(part, 'partname', '<?>'))
+        part._blob = new_xml.encode('utf-8') if new_xml != xml else part._blob
 def fill_docx(template_path, out_path, mapping):
     doc = Document(template_path)
     replace_everywhere(doc, mapping)
@@ -1690,6 +1705,19 @@ def robust_click_plus(el, frame):
     except Exception:
         pass
     return False
+def _list_placeholders(xml: str):
+    hits = []
+    for m in _PLACEHOLDER_FINDER.finditer(xml):
+        i = m.start()
+        last_lt = xml.rfind('<', 0, i)
+        last_gt = xml.rfind('>', 0, i)
+        if last_lt > last_gt:  # we are inside a tag
+            seg = xml[last_lt:i]
+            if '="' in seg or "='" in seg:
+                continue
+        label = re.sub(r'<[^>]*?>', '', m.group('label')).strip()
+        hits.append(label)
+    return hits
 def _objects_dropdown_button(fr):
     return fr.locator("xpath=//a[contains(@id,'_Objects-btn') and contains(@class,'th-ip-h')]").first
 def _objects_dropdown_list(fr):
