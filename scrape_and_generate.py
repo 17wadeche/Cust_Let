@@ -17,10 +17,16 @@ def _delete_row(table: Table, row_idx: int):
     tr = table.rows[row_idx]._tr
     table._tbl.remove(tr)
 def _join_serial_lot(p) -> str:
-    sn = (p.get('sn') or '').strip()
+    sn  = (p.get('sn')  or '').strip()
     lot = (p.get('lot') or '').strip()
-    v = " / ".join([x for x in (sn, lot) if x])
-    return v or "Unknown"
+    if sn and lot:
+        return f"SN: {sn} / LN: {lot}"
+    elif sn:
+        return f"SN: {sn}"
+    elif lot:
+        return f"LN: {lot}"
+    else:
+        return ""   # or "Unknown" if you prefer
 def _row_text(row) -> str:
     return " ".join(_cell_txt(c) for c in row.cells)
 def _looks_like_products_header_row(row) -> bool:
