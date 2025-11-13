@@ -2559,8 +2559,14 @@ def main():
                 pa_summary_lines.append(f"{txid}\n{summary}")
             else:
                 pa_summary_lines.append(f"{txid}\n(No Analysis Summary found)")
+        default_pa_text = (
+            "Information provided to Medtronic indicated that the complaint device "
+            "was not available for evaluation."
+        )
         if pa_summary_lines:
             values["analysis_results"] = "\n\n".join(pa_summary_lines)
+        else:
+            values["analysis_results"] = default_pa_text
         inv_ids_raw = values.get("assoc_tx_investigation_ids", "") or ", ".join(assoc.get("investigation", []))
         inv_ids = [x.strip() for x in inv_ids_raw.split(",") if x.strip()]
         inv_summary_lines = []
@@ -2573,6 +2579,18 @@ def main():
                 inv_summary_lines.append(f"{txid}\n(No Investigation Summary found)")
         if inv_summary_lines:
             values["investigation_summary"] = "\n\n".join(inv_summary_lines)
+        if values.get("analysis_results"):
+            values.setdefault("analysis_1", values["analysis_results"])
+        else:
+            values.setdefault(
+                "analysis_1",
+                "Information provided to Medtronic indicated that the complaint device "
+                "was not available for evaluation."
+            )
+        if values.get("investigation_summary"):
+            values.setdefault("investigation_1", values["investigation_summary"])
+        else:
+            values.setdefault("investigation_1", "")
         for idx, p in enumerate(products, start=1):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"] = (p.get("id") or code)
