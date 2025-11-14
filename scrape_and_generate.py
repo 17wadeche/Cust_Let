@@ -2370,16 +2370,14 @@ def _strip_boilerplate_sentences(s: str) -> str:
     out = re.sub(r'[ \t]{2,}', ' ', out)
     out = re.sub(r'\n{3,}', '\n\n', out)
     return out.strip()
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
-        sys.exit(2)
-    complaint_id = sys.argv[1]
-    cfg_path = Path(sys.argv[2])
+def scrape_complaint(complaint_id: str, cfg_path: str):
+    cfg_path = Path(cfg_path)
     cfg = yaml.safe_load(cfg_path.read_text())
     template_path = Path(cfg['template_path']).expanduser()
     out_dir = Path(cfg.get('output_dir', '.')).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
+    values = {}
+    products = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=cfg.get('headless', False))
         context = browser.new_context()
@@ -2744,10 +2742,18 @@ def main():
                 values[i_key] = ""
         log("Collected fields:")
         log(json.dumps(values, indent=2))    
-        out_name = cfg.get('output_name_pattern', 'Customer_Letter_{complaint_id}.docx').format(**values)
-        out_path = out_dir / out_name
-        fill_docx(str(template_path), str(out_path), values, products)
-        log(f"Generated: {out_path}")
         browser.close()
+    return values, products, cfg, template_path, out_dir
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
+        sys.exit(2)
+    complaint_id = sys.argv[1]
+    cfg_path = sys.argv[2]
+    values, products, cfg, template_path, out_dir = scrape_complaint(complaint_id, cfg_path)
+    out_name = cfg.get('output_name_pattern', 'Customer_Letter_{complaint_id}.docx').format(**values)
+    out_path = out_dir / out_name
+    fill_docx(str(template_path), str(out_path), values, products)
+    log(f"Generated: {out_path}")
 if __name__ == "__main__":
     main()
