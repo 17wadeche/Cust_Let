@@ -648,6 +648,50 @@ def _get_attr_or_text(node):
     return clean(
         (node.get_attribute("title") or node.get_attribute("aria-label") or "")
     )
+DEFAULT_PA_TEXT = (
+    "Information provided to Medtronic indicated that the complaint device "
+    "was not available for evaluation."
+)
+def _format_analysis_block(product_desc: str, summary: str) -> str:
+    s = (summary or "").strip()
+    if not s or s == DEFAULT_PA_TEXT:
+        return DEFAULT_PA_TEXT
+    first = f"{(product_desc or '').strip()} was received for evaluation. " \
+            f"Examination of the sample is described below."
+    return first + "\n\n" + s
+def _normalize_text_preserve(s: str) -> str:
+    s = (s or "").replace("\xa0", " ")
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    lines = s.split("\n")
+    lines = [re.sub(r"[ \t]+$", "", ln) for ln in lines]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+def _safe_td_text(td, preserve=False):
+    if not td or not td.count():
+        return ""
+    try:
+        if preserve:
+            raw = td.evaluate("n => n.textContent || ''") or ""
+            return _normalize_text_preserve(raw)
+        raw = td.evaluate("""
+            (node) => {
+                const a = node.querySelector("a[id*='text_table'][id*='lines']");
+                if (a) {
+                    const t = a.getAttribute('title') || a.getAttribute('aria-label');
+                    if (t && t.trim()) return t;
+                }
+                return node.textContent || '';
+            }
+        """) or ""
+    except Exception:
+        try:
+            raw = td.evaluate("n => n.textContent || ''") or ""
+        except Exception:
+            raw = ""
+    return _normalize_text(raw) if not preserve else _normalize_text_preserve(raw)
 def read_all_products(page, root_frame):
     click_tab_by_text(page, root_frame, "Product Line Items") or \
     click_tab_by_text(page, root_frame, "_ovviewset.do_0002")
@@ -868,7 +912,6 @@ def read_event_description(page, root_frame):
         desc = _safe_td_text(text_td)
     finally:
         _suppress_clicks_disable(chosen_frame)
-
     log(f"[Text] Event description read from TD (no click), length={len(desc)}")
     return desc
 def click_left_nav_product_analysis(page):
@@ -1097,7 +1140,7 @@ def _find_latest_analysis_table_nearby(page):
         except Exception:
             pass
     return candidates[-1] if candidates else (None, None)
-def read_text_by_labels(page, wanted_labels):
+def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
         return ""
@@ -1128,14 +1171,20 @@ def read_text_by_labels(page, wanted_labels):
         "and contains(@id,'-Text') and not(contains(@id,'-TextType'))]"
     ).first
     if td.count():
-        a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
-        if a.count():
-            full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
-            if full:
-                return _normalize_text(full)
-        txt = _safe_td_text(td)
-        if txt:
-            return txt
+        if preserve_format:
+            expand_full_text_if_collapsed(fr)
+            txt = _safe_td_text(td, preserve=True)
+            if txt:
+                return txt
+        else:
+            a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
+            if a.count():
+                full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
+                if full:
+                    return _normalize_text(full)
+            txt = _safe_td_text(td, preserve=False)
+            if txt:
+                return txt
     detail_candidates = fr.locator(
         "xpath=("
         "//textarea[contains(@id,'-Text') and (@readonly or @disabled)] | "
@@ -1146,21 +1195,17 @@ def read_text_by_labels(page, wanted_labels):
     )
     if detail_candidates.count():
         try:
-            return _normalize_text(detail_candidates.first.inner_text())
+            raw = detail_candidates.first.inner_text()
         except Exception:
-            try:
-                return _normalize_text(detail_candidates.first.evaluate("n => n.textContent || ''"))
-            except Exception:
-                pass
+            raw = detail_candidates.first.evaluate("n => n.textContent || ''")
+        return _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
     lab = fr.locator("xpath=//*[normalize-space(.)='Text' or contains(normalize-space(.),'Text')]/following::*[1]").first
     if lab.count():
         try:
-            return _normalize_text(lab.inner_text())
+            raw = lab.inner_text()
         except Exception:
-            try:
-                return _normalize_text(lab.evaluate("n => n.textContent || ''"))
-            except Exception:
-                pass
+            raw = lab.evaluate("n => n.textContent || ''")
+        return _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
     return ""
 def read_analysis_summary_for_current_pli(page):
     labels = [
@@ -1171,7 +1216,7 @@ def read_analysis_summary_for_current_pli(page):
         "Analysis/Investigation conclusion",
         "Analysis/Investigation",
     ]
-    return (read_text_by_labels(page, labels) or "").strip()
+    return (read_text_by_labels(page, labels, preserve_format=True) or "").strip()
 def wait_for_search_with_retries(page, s, *, max_attempts=8, probe_period_ms=2000,
                                  reload_between_attempts=True, total_timeout_ms=240000):
     import re, time
@@ -1834,27 +1879,6 @@ def _normalize_text(s: str) -> str:
     s = re.sub(r'[ \t]+', ' ', s)
     s = re.sub(r'\s*\n\s*', '\n', s).strip()
     return s
-def _safe_td_text(td):
-    if not td or not td.count():
-        return ""
-    try:
-        raw = td.evaluate("""
-            (node) => {
-                // prefer the expander link’s attributes (full content)
-                const a = node.querySelector("a[id*='text_table'][id*='lines']");
-                if (a) {
-                    const t = a.getAttribute('title') || a.getAttribute('aria-label');
-                    if (t && t.trim()) return t;
-                }
-                return node.textContent || '';
-            }
-        """) or ""
-    except Exception:
-        try:
-            raw = td.evaluate("n => n.textContent || ''") or ""
-        except Exception:
-            raw = ""
-    return _normalize_text(raw)
 def _pa_try_expand(fr):
     header = fr.locator("xpath=//*[contains(@class,'left-nav')]//*[contains(@class,'ProductAnalysis')]").first
     if not header.count(): 
@@ -2647,6 +2671,19 @@ def main():
             values[f"serial_or_lot_value_{idx}"] = value_2
         values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
         values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
+        pa_by_product = collect_product_analysis(page, frame, products)  # returns mapping keyed by product code/pid/desc
+        for idx, p in enumerate(products, start=1):
+            pid  = (p.get("id") or "").strip()
+            code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
+            desc = (p.get("desc") or "").strip()
+            summary = (
+                pa_by_product.get(code) or
+                (pa_by_product.get(pid) if pid else "") or
+                (pa_by_product.get(desc) if desc else "") or
+                ""
+            ).strip()
+            values[f"analysis_{idx}"] = _format_analysis_block(desc, summary)
+        values["analysis_results"] = "\n\n".join(values.get(f"analysis_{i+1}", DEFAULT_PA_TEXT) for i in range(len(products)))
         values['_product_count'] = len(products)
         if not (values.get('ir_name') or '').strip():
             values['ir_name'] = 'Customer'
