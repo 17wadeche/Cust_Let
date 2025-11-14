@@ -2354,7 +2354,7 @@ _BOILERPLATE_SENTENCE_RX = re.compile(
         (?:This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+
            Returned\s+Product\s+Analysis\s*\(RPA\)\s*Lab
         |
-           The\s+RPA\s+Lab\s+received\s+one
+           (?:The\s+)?RPA\s+Lab\s+received\s+one
         )
         [^.!?]*[.!?]?                      # rest of that sentence up to its terminator
     )
