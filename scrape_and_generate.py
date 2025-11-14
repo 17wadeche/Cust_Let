@@ -727,7 +727,8 @@ def _normalize_text_preserve(s: str) -> str:
     s = s.replace("\xa0", " ").replace("\r\n", "\n").replace("\r", "\n")
     lines = s.split("\n")
     lines = [re.sub(r"[ \t]+$", "", ln) for ln in lines]
-    return "\n".join(lines)
+    s = "\n".join(lines)
+    return _strip_boilerplate_sentences(s)
 def _safe_td_text(td, preserve=False):
     if not td or not td.count():
         return ""
@@ -2346,18 +2347,29 @@ def read_investigation_summary_for_current_pli(page):
 def _apply_plural_s(xml: str, plural: bool) -> str:
     rx = re.compile(r'(\{\{|\[\[)\s*s\s*(\}\}|\]\])', re.I)
     return rx.sub('s' if plural else '', xml)
-_BOILERPLATE_PHRASE_RX = re.compile(
-    r'''
-        This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+
-        Returned\s+Product\s+Analysis\s*\(RPA\)
-    ''',
-    re.IGNORECASE | re.VERBOSE
+_BOILERPLATE_SENTENCE_RX = re.compile(
+    r"""
+    (?P<prefix>^|[.!?]\s+|\n+)             # sentence boundary before the boilerplate
+    (?P<sentence>
+        (?:This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+
+           Returned\s+Product\s+Analysis\s*\(RPA\)\s*Lab
+        |
+           The\s+RPA\s+Lab\s+received\s+one
+        )
+        [^.!?]*[.!?]?                      # rest of that sentence up to its terminator
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE | re.MULTILINE,
 )
 def _strip_boilerplate_sentences(s: str) -> str:
     if not s:
         return s
-    s = _BOILERPLATE_PHRASE_RX.sub('', s)
-    return re.sub(r'\s{2,}', ' ', s).strip()
+    def repl(m: re.Match) -> str:
+        return m.group('prefix')
+    out = _BOILERPLATE_SENTENCE_RX.sub(repl, s)
+    out = re.sub(r'[ \t]{2,}', ' ', out)
+    out = re.sub(r'\n{3,}', '\n\n', out)
+    return out.strip()
 def _clean_summary_text(s: str) -> str:
     s = _normalize_text_preserve(s)
     s = _strip_boilerplate_sentences(s)
