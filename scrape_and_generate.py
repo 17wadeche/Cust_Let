@@ -2370,10 +2370,6 @@ def _strip_boilerplate_sentences(s: str) -> str:
     out = re.sub(r'[ \t]{2,}', ' ', out)
     out = re.sub(r'\n{3,}', '\n\n', out)
     return out.strip()
-def _clean_summary_text(s: str) -> str:
-    s = _normalize_text_preserve(s)
-    s = _strip_boilerplate_sentences(s)
-    return s
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
