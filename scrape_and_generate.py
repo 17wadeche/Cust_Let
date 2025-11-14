@@ -685,15 +685,21 @@ def get_current_activity_product_code(page) -> str:
                 continue
             m = re.search(r'Product:([^,]+)', title)
             if m:
-                return m.group(1).strip()
-        except Exception:
+                code = m.group(1).strip()
+                log(f"[bcTitle] Found product in header: {code!r} (title={title!r})")
+                return code
+        except Exception as e:
+            log(f"[bcTitle] error reading bcTitle in frame {getattr(fr, 'name', '')}: {e}")
             continue
+    log("[bcTitle] No product code found in any frame")
     return ""
 def read_analysis_summary_and_product_for_txid(page, txid: str):
     ok = search_activities_for_id(page, txid)
     if not ok:
+        log(f"[PA-SUMMARY] search_activities_for_id failed for txid={txid}")
         return "", ""
     prod_code = get_current_activity_product_code(page)
+    log(f"[PA-SUMMARY] txid={txid} → bcTitle product={prod_code!r}")
     click_tab_by_text(page, page.main_frame, "Text Info") or \
     click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
     txt = read_analysis_summary_for_current_pli(page)
@@ -704,8 +710,10 @@ def read_analysis_summary_and_product_for_txid(page, txid: str):
 def read_investigation_summary_and_product_for_txid(page, txid: str):
     ok = search_activities_for_id(page, txid)
     if not ok:
+        log(f"[INV-SUMMARY] search_activities_for_id failed for txid={txid}")
         return "", ""
     prod_code = get_current_activity_product_code(page)
+    log(f"[INV-SUMMARY] txid={txid} → bcTitle product={prod_code!r}")
     click_tab_by_text(page, page.main_frame, "Text Info") or \
     click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
     txt = read_investigation_summary_for_current_pli(page)
@@ -965,7 +973,6 @@ def read_event_description(page, root_frame):
         _suppress_clicks_disable(chosen_frame)
     log(f"[Text] Event description read from TD (no click), length={len(desc)}")
     return desc
-
 def _textinfo_signature(page):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
@@ -1086,8 +1093,6 @@ def _scan_pa_anywhere(page, section_text: str):
         except Exception:
             continue
     return found
-def _product_analysis_anchor_locator(fr):
-    return fr.locator(_section_anchor_xpath("Product Analysis"))
 def _enumerate_pa_items(fr):
     return _enumerate_section_items(fr, "Product Analysis")
 def _content_frame(page):
@@ -1227,8 +1232,6 @@ def read_analysis_summary_for_current_pli(page):
     labels = [
         "Analysis Summary",
         "Analysis/Investigation Summary",
-        "Summary of Investigations",
-        "Investigation Summary",
         "Analysis/Investigation conclusion",
         "Analysis/Investigation",
     ]
@@ -1408,10 +1411,20 @@ def _hdr_indices_from_any(header_tbl, body_tbl):
             if any(re.search(p, t or "", re.I) for p in patterns):
                 return i
         return None
-    idx_id = find_idx([r'(?:trans|txn|transaction|work\s*item).*?(?:id|no|number)'])
-    idx_type = find_idx([r'(?:trans|txn|transaction|work\s*item|related).*?(?:type|category)'])
-    idx_status = find_idx([r'(?:status|state)\b'])
-    return idx_id, idx_type, idx_status
+    idx_id = find_idx([
+        r'(?:trans|txn|transaction|work\s*item).*?(?:id|no|number)'
+    ])
+    idx_type = find_idx([
+        r'(?:trans|txn|transaction|work\s*item|related).*?(?:type|category)'
+    ])
+    idx_status = find_idx([
+        r'(?:status|state)\b'
+    ])
+    idx_product = find_idx([
+        r'\bproduct\b',
+        r'\bprod\b'
+    ])
+    return idx_id, idx_type, idx_status, idx_product
 def _scroll_to_load_all_in_div(fr, body_tbl, scroll_div):
     if not body_tbl or not body_tbl.count():
         return
@@ -1582,15 +1595,15 @@ def read_associated_transactions_complete(page, root_frame):
         page.wait_for_timeout(250)
     if not fr:
         log("[AssocTx] grid frame not found")
-        return {"product_analysis": [], "investigation": []}
+        return {"product_analysis": [], "investigation": [], "tx_product_map": {}}
+    tx_product_map = {}
     def _collect_for(label):
-        h0, b0, sc0, hdr0 = _pick_assoc_grid_table(fr)
-        sig_before = _node_signature(b0) if b0 else ""
+        header_tbl_0, body_tbl_0, scroll_div_0, headers_0 = _pick_assoc_grid_table(fr)
+        sig_before = _node_signature(body_tbl_0) if body_tbl_0 else ""
         if not _assoc_click_filter(fr, label):
             return []
         header_tbl = body_tbl = scroll_div = None
         headers = []
-        changed = False
         for _ in range(3):  # ~600ms total
             page.wait_for_timeout(200)
             h1, b1, sc1, hdr1 = _pick_assoc_grid_table(fr)
@@ -1598,35 +1611,58 @@ def read_associated_transactions_complete(page, root_frame):
                 sig_after = _node_signature(b1)
                 header_tbl, body_tbl, scroll_div, headers = h1, b1, sc1, hdr1
                 if (sig_after and sig_after != sig_before) or not sig_before:
-                    changed = True
-                break
+                    break
         if not body_tbl:
             log(f"[AssocTx] no AssociatedTransactions grid after clicking {label} — skipping")
             return []
         _scroll_to_load_all_in_div(fr, body_tbl, scroll_div)
         rows = body_tbl.locator("xpath=.//tr[td]")
-        idx_id, idx_type, idx_status = _hdr_indices_from_any(header_tbl, body_tbl)
+        idx_id, idx_type, idx_status, idx_product = _hdr_indices_from_any(header_tbl, body_tbl)
         ids_complete, ids_any = [], []
         n = rows.count()
         for i in range(n):
             row = rows.nth(i)
             cells = row.locator("xpath=.//th|.//td")
             txid = None
-            status = None
             if idx_id is not None and cells.count() > idx_id:
                 txid_txt = clean(cells.nth(idx_id).inner_text())
-                txid = _find_first_match([r"\b\d{5,}\b", r"\b[A-Z]{2,5}[-_ ]?\d{4,}\b"], txid_txt) or txid_txt
+                txid = _find_first_match(
+                    [r"\b\d{5,}\b", r"\b[A-Z]{2,5}[-_ ]?\d{4,}\b"],
+                    txid_txt
+                ) or txid_txt
             else:
                 txid = _row_txid(row)
-
             if idx_status is not None and cells.count() > idx_status:
                 status = clean(cells.nth(idx_status).inner_text())
             else:
                 status = _row_status_text(row)
-
-            dbg = f"id={txid or '-'} status={(status or '').strip()!r}"
+            product_txt = ""
+            if idx_product is not None and cells.count() > idx_product:
+                product_txt = clean(cells.nth(idx_product).inner_text())
+            if not product_txt:
+                prod_cell = row.locator(
+                    "xpath=.//td[contains(@id,'GUIDE-AssociatedTransactionsTable') "
+                    "and contains(@id,'-Product')]"
+                ).first
+                if prod_cell.count():
+                    a = prod_cell.locator("xpath=.//a").first
+                    if a.count():
+                        product_txt = clean(
+                            a.get_attribute("title")
+                            or a.get_attribute("aria-label")
+                            or a.inner_text()
+                        )
+                    else:
+                        product_txt = clean(prod_cell.inner_text())
+            product_code = extract_product_code(product_txt).upper() if product_txt else ""
+            dbg = (
+                f"id={txid or '-'} "
+                f"status={(status or '').strip()!r} "
+                f"product={product_txt!r} code={product_code!r}"
+            )
             log(f"[AssocTx:{label}] row {i+1}/{n}: {dbg}")
-
+            if txid and product_code:
+                tx_product_map.setdefault(txid, product_code)
             if not txid:
                 continue
             ids_any.append(txid)
@@ -1641,20 +1677,32 @@ def read_associated_transactions_complete(page, root_frame):
             return ids_any
         return []
     has_btns = (
-        fr.get_by_role("button", name=re.compile(r"^\s*(Analysis|Investigation)\s*$", re.I)).first.count() or
-        fr.locator("xpath=//span[contains(@class,'th-bt-span')][.//b[normalize-space(.)='Analysis' or normalize-space(.)='Investigation']]").first.count()
+        fr.get_by_role("button", name=re.compile(r"^\s*(Analysis|Investigation)\s*$", re.I)).first.count()
+        or fr.locator(
+            "xpath=//span[contains(@class,'th-bt-span')][.//b[normalize-space(.)='Analysis' or normalize-space(.)='Investigation']]"
+        ).first.count()
     )
     if not has_btns:
         log("[AssocTx] filter buttons not present in detected frame; falling back to unfiltered parse")
         header_tbl, body_tbl, scroll_div, _ = _pick_assoc_grid_table(fr)
         if not body_tbl:
-            return {"product_analysis": [], "investigation": []}
-        return _collect_unfiltered(fr, header_tbl, body_tbl, scroll_div)
+            return {"product_analysis": [], "investigation": [], "tx_product_map": {}}
+        base = _collect_unfiltered(fr, header_tbl, body_tbl, scroll_div)
+        base["tx_product_map"] = tx_product_map
+        return base
     pa = _collect_for("Analysis")
     inv = _collect_for("Investigation")
     log(f"[AssocTx] Product Analysis (Complete or fallback): {pa}")
     log(f"[AssocTx] Investigations (Complete or fallback): {inv}")
-    return {"product_analysis": pa, "investigation": inv}
+    if tx_product_map:
+        for txid, code in tx_product_map.items():
+            log(f"[AssocTx] TX {txid} → Product {code}")
+
+    return {
+        "product_analysis": pa,
+        "investigation": inv,
+        "tx_product_map": tx_product_map,
+    }
 def summary_has_product_id(text: str, product_id: str) -> bool:
     if not text or not product_id:
         return False
@@ -1888,7 +1936,6 @@ def _pick_dropdown_option(fr, want_texts) -> bool:
     clickable = target.locator("xpath=ancestor-or-self::*[self::a or self::li or self::div][1]").first
     if not clickable.count():
         clickable = target
-
     try:
         robust_click(clickable, fr)
         fr.wait_for_timeout(200)
@@ -2221,19 +2268,21 @@ def _renumber_xml_placeholders(xml: str, src_idx: int, dst_idx: int) -> str:
         xml = pat.sub(lambda m: f"{m.group('open')}{base} {dst_idx}{m.group('close')}", xml)
     return xml
 def _find_second_table_and_blocks(doc: Document):
+    first_products_tbl_seen = False
     for tbl in doc.tables:
-        if _table_is_first_products_table(tbl):
+        if _table_is_first_products_table(tbl) and not first_products_tbl_seen:
+            first_products_tbl_seen = True
             continue
         starts = [i for i, r in enumerate(tbl.rows) if _row_has_productid_placeholder(r)]
         if not starts:
             continue
         whole_text = " ".join(_row_text(r) for r in tbl.rows)
-        maybe_analysisy = ("analysis" in whole_text) or ("investigation" in whole_text)
+        maybe_analysisy = ("analysis" in whole_text.lower()) or ("investigation" in whole_text.lower())
         if not maybe_analysisy:
             continue
         blocks = []
         for j, s_idx in enumerate(starts):
-            e_idx = (starts[j+1]-1) if (j+1 < len(starts)) else (len(tbl.rows)-1)
+            e_idx = (starts[j+1] - 1) if (j + 1 < len(starts)) else (len(tbl.rows) - 1)
             blocks.append((s_idx, e_idx))
         return tbl, blocks
     return None, []
@@ -2505,23 +2554,46 @@ def main():
         log(f"[Text] description length: {len(values.get('event_description',''))}")
         log("[step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs")
         assoc = read_associated_transactions_complete(page, frame)
+        tx_product_map = assoc.get("tx_product_map", {}) or {}
         code_to_idx = {}
-        def _match_summary_to_product_index(summary: str, prod_code: str, products: list, code_to_idx: dict):
-            if prod_code:
-                idx = code_to_idx.get((prod_code or "").upper())
+        def _match_summary_to_product_index(
+            txid: str,
+            summary: str,
+            prod_code_from_bc: str,
+            products: list,
+            code_to_idx: dict,
+            tx_product_map: dict,
+        ):
+            assoc_code = (tx_product_map.get(txid) or "").strip().upper()
+            if assoc_code:
+                idx = code_to_idx.get(assoc_code)
                 if idx:
+                    log(f"[Match] txid={txid} matched via AssocTx grid product={assoc_code!r} → product index {idx}")
+                    return idx
+            bc_code = (prod_code_from_bc or "").strip().upper()
+            if bc_code:
+                idx = code_to_idx.get(bc_code)
+                if idx:
+                    log(f"[Match] txid={txid} matched via bcTitle product={bc_code!r} → product index {idx}")
                     return idx
             for i, p in enumerate(products, start=1):
                 pid = (p.get("id") or "").strip()
                 if pid and summary_has_product_id(summary, pid):
+                    log(f"[Match] txid={txid} matched via summary_has_product_id({pid!r}) → product index {i}")
                     return i
             for i, p in enumerate(products, start=1):
                 desc_code = (p.get("code") or extract_product_code(p.get("desc", ""))).upper()
-                if prod_code and desc_code and prod_code.upper() == desc_code:
-                    return i
+                for code in (assoc_code, bc_code):
+                    if code and desc_code and code == desc_code:
+                        log(f"[Match] txid={txid} matched via desc_code={desc_code!r} → product index {i}")
+                        return i
+            log(f"[Match] txid={txid} could NOT be matched to any product")
             return None
         for idx, p in enumerate(products, start=1):
+            pid  = (p.get("id")   or "").strip().upper()
             code = (p.get("code") or extract_product_code(p.get("desc", ""))).upper()
+            if pid:
+                code_to_idx.setdefault(pid, idx)
             if code:
                 code_to_idx.setdefault(code, idx)
         default_pa_text = (
@@ -2538,7 +2610,14 @@ def main():
             summary = _clean_summary_text(raw_summary)
             if not summary:
                 summary = "(No Analysis Summary found)"
-            idx = _match_summary_to_product_index(summary, prod_code, products, code_to_idx)
+            idx = _match_summary_to_product_index(
+                txid,
+                summary,
+                prod_code,
+                products,
+                code_to_idx,
+                tx_product_map,
+            )
             if idx:
                 key = f"analysis_{idx}"
                 prev = per_product_pa.get(idx, "")
@@ -2552,10 +2631,11 @@ def main():
             values["analysis_results"] = "\n\n".join(all_pa_blocks)
         else:
             values["analysis_results"] = default_pa_text
-        if values.get("analysis_results"):
-            values.setdefault("analysis_1", values["analysis_results"])
-        else:
-            values.setdefault("analysis_1", default_pa_text)
+        if len(products) == 1:
+            if values.get("analysis_results"):
+                values.setdefault("analysis_1", values["analysis_results"])
+            else:
+                values.setdefault("analysis_1", default_pa_text)
         inv_ids_raw = values.get("assoc_tx_investigation_ids", "") or ", ".join(assoc.get("investigation", []))
         inv_ids = [x.strip() for x in inv_ids_raw.split(",") if x.strip()]
         per_product_inv = {}
@@ -2566,7 +2646,14 @@ def main():
             summary = _clean_summary_text(raw_summary)
             if not summary:
                 summary = "(No Investigation Summary found)"
-            idx = _match_summary_to_product_index(summary, prod_code, products, code_to_idx)
+            idx = _match_summary_to_product_index(
+                txid,
+                summary,
+                prod_code,
+                products,
+                code_to_idx,
+                tx_product_map,
+            )
             if idx:
                 prev = per_product_inv.get(idx, "")
                 per_product_inv[idx] = (prev + ("\n\n" if prev else "") + summary).strip()
@@ -2587,10 +2674,11 @@ def main():
                 "Information provided to Medtronic indicated that the complaint device "
                 "was not available for evaluation."
             )
-        if values.get("investigation_summary"):
-            values.setdefault("investigation_1", values["investigation_summary"])
-        else:
-            values.setdefault("investigation_1", "")
+        if len(products) == 1:
+            if values.get("investigation_summary"):
+                values.setdefault("investigation_1", values["investigation_summary"])
+            else:
+                values.setdefault("investigation_1", "")
         for idx, p in enumerate(products, start=1):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"]   = (p.get("id") or code)
@@ -2636,6 +2724,17 @@ def main():
         if len(products) > 3:
             extras = [f"{p['id']} — {p['desc']}" for p in products[3:]]
             values.setdefault("product_extras", "\n".join(extras))
+        default_pa_text = (
+            "Information provided to Medtronic indicated that the complaint device "
+            "was not available for evaluation."
+        )
+        for idx in range(1, len(products) + 1):
+            a_key = f"analysis_{idx}"
+            if not (values.get(a_key) or "").strip():
+                values[a_key] = default_pa_text
+            i_key = f"investigation_{idx}"
+            if not (values.get(i_key) or "").strip():
+                values[i_key] = ""
         log("Collected fields:")
         log(json.dumps(values, indent=2))    
         out_name = cfg.get('output_name_pattern', 'Customer_Letter_{complaint_id}.docx').format(**values)
