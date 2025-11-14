@@ -9,8 +9,23 @@ from docx.oxml import parse_xml
 from datetime import datetime
 from docx.table import _Cell, Table
 from docx.oxml.ns import qn
+import html
 ENDS_WITH_PRODUCT     = "substring(@id, string-length(@id) - string-length('-Product') + 1) = '-Product'"
 ENDS_WITH_DESCRIPTION = "substring(@id, string-length(@id) - string-length('-Description') + 1) = '-Description'"
+# Convert newlines inside <w:t> to <w:br/> (so Word shows real line breaks)
+_WT_RX = re.compile(r'(<w:t\b[^>]*>)(.*?)(</w:t>)', re.S | re.I)
+def _xml_convert_newlines_to_br(xml: str) -> str:
+    def repl(m):
+        open_tag, text, close_tag = m.group(1), m.group(2), m.group(3)
+        if '\n' not in text:
+            if 'xml:space' not in open_tag:
+                open_tag = open_tag[:-1] + ' xml:space="preserve">'
+            return open_tag + text + close_tag
+        parts = [html.escape(p) for p in text.split('\n')]
+        if 'xml:space' not in open_tag:
+            open_tag = open_tag[:-1] + ' xml:space="preserve">'
+        return open_tag + ('</w:t><w:br/><w:t xml:space="preserve">'.join(parts)) + close_tag
+    return _WT_RX.sub(repl, xml)
 def _norm(s: str) -> str:
     return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
 def _cell_txt(cell: _Cell) -> str:
@@ -329,6 +344,7 @@ def replace_everywhere(doc: Document, mapping: dict):
         new_xml = _xml_replace_all(xml, resolved)
         plural = (mapping.get('_product_count') or 0) > 1
         new_xml = _apply_plural_s(new_xml, plural)
+        new_xml = _xml_convert_newlines_to_br(new_xml)
         if new_xml != xml:
             print("[DOCX] replacements applied in", getattr(part, 'partname', '<?>'))
             try:
@@ -653,21 +669,56 @@ DEFAULT_PA_TEXT = (
     "was not available for evaluation."
 )
 def _format_analysis_block(product_desc: str, summary: str) -> str:
-    s = (summary or "").strip()
-    if not s or s == DEFAULT_PA_TEXT:
+    s = "" if summary is None else _normalize_text_preserve(summary)
+    if not s.strip() or s.strip() == DEFAULT_PA_TEXT:
         return DEFAULT_PA_TEXT
-    first = f"{(product_desc or '').strip()} was received for evaluation. " \
-            f"Examination of the sample is described below."
-    return first + "\n\n" + s
+    lead = f"{(product_desc or '').strip()} was received for evaluation. Examination of the sample is described below."
+    return lead + "\n\n" + s.lstrip("\n")
+def get_current_activity_product_code(page) -> str:
+    for fr in page.frames:
+        try:
+            td = fr.locator("xpath=//td[@id='bcTitle']").first
+            if not td.count():
+                continue
+            title = (td.get_attribute("title") or td.inner_text() or "").strip()
+            if not title:
+                continue
+            m = re.search(r'Product:([^,]+)', title)
+            if m:
+                return m.group(1).strip()
+        except Exception:
+            continue
+    return ""
+def read_analysis_summary_and_product_for_txid(page, txid: str):
+    ok = search_activities_for_id(page, txid)
+    if not ok:
+        return "", ""
+    prod_code = get_current_activity_product_code(page)
+    click_tab_by_text(page, page.main_frame, "Text Info") or \
+    click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
+    txt = read_analysis_summary_for_current_pli(page)
+    if not txt:
+        page.wait_for_timeout(500)
+        txt = read_analysis_summary_for_current_pli(page)
+    return (txt or "").strip(), (prod_code or "").strip()
+def read_investigation_summary_and_product_for_txid(page, txid: str):
+    ok = search_activities_for_id(page, txid)
+    if not ok:
+        return "", ""
+    prod_code = get_current_activity_product_code(page)
+    click_tab_by_text(page, page.main_frame, "Text Info") or \
+    click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
+    txt = read_investigation_summary_for_current_pli(page)
+    if not txt:
+        page.wait_for_timeout(500)
+        txt = read_investigation_summary_for_current_pli(page)
+    return (txt or "").strip(), (prod_code or "").strip()
 def _normalize_text_preserve(s: str) -> str:
-    s = (s or "").replace("\xa0", " ")
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    if s is None:
+        return ""
+    s = s.replace("\xa0", " ").replace("\r\n", "\n").replace("\r", "\n")
     lines = s.split("\n")
     lines = [re.sub(r"[ \t]+$", "", ln) for ln in lines]
-    while lines and not lines[0].strip():
-        lines.pop(0)
-    while lines and not lines[-1].strip():
-        lines.pop()
     return "\n".join(lines)
 def _safe_td_text(td, preserve=False):
     if not td or not td.count():
@@ -914,42 +965,7 @@ def read_event_description(page, root_frame):
         _suppress_clicks_disable(chosen_frame)
     log(f"[Text] Event description read from TD (no click), length={len(desc)}")
     return desc
-def click_left_nav_product_analysis(page):
-    for fr in page.frames:
-        try:
-            header = fr.locator("xpath=//*[contains(@class,'left-nav')]//*[contains(@class,'ProductAnalysis')]").first
-            if not header.count():
-                continue
-            log("[nav] Opening left nav: Product Analysis")
-            _pa_try_expand(fr)  # <-- use the helper
-            try:
-                fr.wait_for_selector(_section_anchor_xpath("Product Analysis"), timeout=3000)
-            except Exception:
-                pass
-            return True
-        except Exception:
-            continue
-    return False
-def click_left_nav_investigation(page):
-    candidates = [
-        "xpath=//div[contains(@class,'left-nav')]//div[normalize-space(.)='Investigation']",
-        "xpath=//*[contains(@class,'left-nav')]//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'investigation')]",
-    ]
-    for sel in candidates:
-        for fr in page.frames:
-            try:
-                loc = fr.locator(sel).first
-                if loc.count():
-                    log("[nav] Opening left nav: Investigation")
-                    loc.click()
-                    try:
-                        fr.wait_for_selector("xpath=//a[contains(@class,'GUIDE-sideNav')]", timeout=4000)
-                    except Exception:
-                        pass
-                    return True
-            except Exception:
-                continue
-    return False
+
 def _textinfo_signature(page):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
@@ -1644,151 +1660,6 @@ def summary_has_product_id(text: str, product_id: str) -> bool:
         return False
     pid = str(product_id).strip()
     return re.search(rf"\b{re.escape(pid)}\b", text, re.IGNORECASE) is not None
-def collect_investigations_by_product(page, root_frame, known_products):
-    id_by_code = {}
-    wanted_codes = set()
-    for p in known_products:
-        code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
-        if code:
-            wanted_codes.add(code)
-            pid = (p.get("id") or "").strip()
-            if pid:
-                id_by_code[code] = pid
-    if not click_left_nav_investigation(page):
-        return {(p.get("id") or p.get("code") or "").strip(): "" for p in known_products}
-    nav_fr = _find_leftnav_frame(page)
-    if not nav_fr:
-        nav_items = _scan_pa_anywhere(page, "Investigation")
-        items = [{"i": i, "text": txt, "code": extract_product_code(txt), "data_id": did, "el": a, "frame": fr}
-                 for i, (fr, a, txt, did) in enumerate(nav_items)]
-    else:
-        _ensure_section_expanded(page, "Investigations")
-        items = _enumerate_section_items(nav_fr, "Investigations")
-        if not items:
-            nav_items = _scan_pa_anywhere(page, "Investigation")
-            items = [{"i": i, "text": txt, "code": extract_product_code(txt), "data_id": did, "el": a, "frame": fr}
-                     for i, (fr, a, txt, did) in enumerate(nav_items)]
-    items = [it for it in items if (it.get("code","").upper() in wanted_codes)]
-    summaries_by_text = {}
-    for it in items:
-        anchors_now = _anchors_in_section(nav_fr, "Investigations") if nav_fr else None
-        target = anchors_now.nth(it["i"]) if (anchors_now and anchors_now.count() > it["i"]) else None
-        if (not target or not target.count()) and it.get("data_id") and nav_fr:
-            target = nav_fr.locator(
-                _section_anchor_xpath("Investigations") +
-                f"[contains(@data-trans-id,'{it['data_id']}') or contains(@data-transId,'{it['data_id']}') or contains(@data-transid,'{it['data_id']}')]"
-            ).first
-        if not target or not target.count():
-            target = it.get("el")
-        if not target or not target.count():
-            continue
-        prev_sig = _textinfo_signature(page)
-        if not robust_click_plus(target, it.get("frame") or nav_fr or page.main_frame):
-            continue
-        changed = wait_for_textinfo_change(page, prev_sig, timeout=10000)
-        if not changed:
-            try:
-                page.wait_for_timeout(350)
-            except Exception:
-                pass
-        txt = (read_analysis_summary_for_current_pli(page) or "").strip()
-        expected_pid = id_by_code.get((it.get("code") or "").upper(), "")
-        if txt and expected_pid and not summary_has_product_id(txt, expected_pid):
-            txt = ""
-        if txt:
-            summaries_by_text[it["text"]] = txt
-    results = {}
-    for p in known_products:
-        code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
-        best = ""
-        if code:
-            for t, s in summaries_by_text.items():
-                if code == (extract_product_code(t) or "").upper():
-                    best = s
-                    break
-        key = code or (p.get("id") or "") or p.get("desc","")
-        results[key] = best  # empty if nothing
-    return results
-def collect_product_analysis(page, root_frame, known_products):
-    id_by_code = {}
-    wanted_codes = set()
-    for p in known_products:
-        code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
-        if code:
-            wanted_codes.add(code)
-            pid = (p.get("id") or "").strip()
-            if pid:
-                id_by_code[code] = pid
-    nav_clicked = click_left_nav_product_analysis(page)
-    if not nav_clicked:
-        default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
-        return {(p.get("id") or p.get("code") or "").strip(): default_msg
-                for p in known_products if (p.get("id") or p.get("code"))}
-    nav_fr = _find_leftnav_frame(page)
-    if not nav_fr:
-        nav_items = _scan_pa_anywhere(page, "Product Analysis")
-        items = [{"i": i, "text": txt, "code": extract_product_code(txt), "data_id": did, "el": a, "frame": fr}
-                 for i, (fr, a, txt, did) in enumerate(nav_items)]
-    else:
-        _ensure_section_expanded(page, "Product Analysis")
-        items = _enumerate_pa_items(nav_fr)
-        if not items:
-            log("[PA] no anchors in-section; scanning section across frames…")
-            nav_items = _scan_pa_anywhere(page, "Product Analysis")
-            items = [{"i": i, "text": txt, "code": extract_product_code(txt), "data_id": did, "el": a, "frame": fr}
-                     for i, (fr, a, txt, did) in enumerate(nav_items)]
-    items = [it for it in items if (it.get("code","").upper() in wanted_codes)]
-    log("[PA] anchors (Product Analysis only): " + "; ".join([repr(it["text"]) for it in items[:10]]))
-    summaries_by_text = {}
-    for it in items:
-        anchors_now = _product_analysis_anchor_locator(nav_fr) if nav_fr else None
-        target = anchors_now.nth(it["i"]) if (anchors_now and anchors_now.count() > it["i"]) else None
-        if (not target or not target.count()) and it.get("data_id") and nav_fr:
-            target = _pa_anchor_by_data_id(nav_fr, it["data_id"])
-        if not target or not target.count():
-            target = it.get("el")
-        if not target or not target.count():
-            continue
-        content_fr = _content_frame(page)
-        prev_sig = _textinfo_signature(page)
-        if not robust_click_plus(target, it.get("frame") or nav_fr or page.main_frame):
-            log(f"[PA] click failed for: {it['text']!r} data_id={it.get('data_id','')}")
-            continue
-        changed = wait_for_textinfo_change(page, prev_sig, timeout=10000)
-        if not changed:
-            try:
-                content_fr.wait_for_selector(
-                    "xpath=//div[contains(@class,'th-clr-cnt-bottom')]"
-                    "//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]",
-                    timeout=3000
-                )
-                changed = True
-            except Exception:
-                pass
-        if not changed:
-            content_fr.wait_for_timeout(350)
-        txt = read_analysis_summary_for_current_pli(page).strip()
-        expected_pid = id_by_code.get((it.get("code") or "").upper(), "")
-        if txt and expected_pid and not summary_has_product_id(txt, expected_pid):
-            log(f"[PA] discard summary for {it['text']!r}: missing product id {expected_pid}")
-            txt = ""
-        log(f"[PA] read summary for {it['text']!r}: {('len='+str(len(txt)) if txt else 'EMPTY')}")
-        if txt:
-            summaries_by_text[it["text"]] = txt
-    default_msg = "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
-    results = {}
-    for p in known_products:
-        pid  = (p.get("id") or "").strip()
-        code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
-        best = ""
-        if code:
-            for t, s in summaries_by_text.items():
-                if code == (extract_product_code(t) or "").upper():
-                    best = s
-                    break
-        key = code or pid or p.get("desc","")
-        results[key] = best or default_msg
-    return results
 def robust_click(el, frame, timeout_ms=8000):
     try:
         el.scroll_into_view_if_needed(timeout=2000)
@@ -2405,10 +2276,47 @@ def read_analysis_summary_for_txid(page, txid: str) -> str:
         txt = read_analysis_summary_for_current_pli(page)
     return (txt or "").strip()
 def read_investigation_summary_for_txid(page, txid: str) -> str:
-    return read_analysis_summary_for_txid(page, txid)
+    ok = search_activities_for_id(page, txid)
+    if not ok:
+        return ""
+    click_tab_by_text(page, page.main_frame, "Text Info") or \
+    click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
+    txt = read_investigation_summary_for_current_pli(page)
+    if not txt:
+        page.wait_for_timeout(500)
+        txt = read_investigation_summary_for_current_pli(page)
+    return (txt or "").strip()
+def read_investigation_summary_for_current_pli(page):
+    labels = [
+        "Investigation Summary",
+        "Summary of Investigation",
+        "Investigation Conclusion",
+        "Investigation Findings",
+    ]
+    return (read_text_by_labels(page, labels, preserve_format=True) or "").strip()
 def _apply_plural_s(xml: str, plural: bool) -> str:
     rx = re.compile(r'(\{\{|\[\[)\s*s\s*(\}\}|\]\])', re.I)
     return rx.sub('s' if plural else '', xml)
+_BOILERPLATE_SENTENCES_RX = re.compile(
+    r'''
+        (?:^|\s)                                   # start of line or whitespace
+        (?:                                        # EITHER of these sentences:
+          This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+Returned\s+Product\s+Analysis\s*\(RPA\)[^.]*\.
+          |
+          The\s+RPA\s+Lab\s+rec(?:ei|ie)ved\s+one[^.]*\.
+        )
+        (?:\s+|$)                                   # trailing space/newline or end
+    ''',
+    re.IGNORECASE | re.MULTILINE | re.VERBOSE
+)
+def _strip_boilerplate_sentences(s: str) -> str:
+    if not s:
+        return s
+    return _BOILERPLATE_SENTENCES_RX.sub('', s).strip()
+def _clean_summary_text(s: str) -> str:
+    s = _normalize_text_preserve(s)
+    s = _strip_boilerplate_sentences(s)
+    return s
 def main():
     if len(sys.argv) < 3:
         print("Usage: python scrape_and_generate.py <complaint_id> <config.yaml>")
@@ -2590,42 +2498,87 @@ def main():
         if not desc and wait_for_textinfo_change(page, prev_sig, timeout=8000):
             desc = read_event_description(page, frame)
         if desc:
+            desc = re.sub(r'^\s*according\s+to\s+the\s+reporter[,:-]?\s*', '', desc, flags=re.I)
             desc = re.sub(r'^\s*it\s+was\s+reported(?:\s+that)?[,:-]?\s*', '', desc, flags=re.I).lstrip()
             desc = re.sub(r'([.!?])\1+', r'\1', desc)
             values["event_description"] = desc
         log(f"[Text] description length: {len(values.get('event_description',''))}")
         log("[step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs")
         assoc = read_associated_transactions_complete(page, frame)
-        pa_ids_raw = values.get("assoc_tx_product_analysis_ids", "") or ", ".join(assoc.get("product_analysis", []))
-        pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
-        pa_summary_lines = []
-        for txid in pa_ids:
-            log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
-            summary = read_analysis_summary_for_txid(page, txid)
-            if summary:
-                pa_summary_lines.append(summary)
-            else:
-                pa_summary_lines.append("(No Analysis Summary found)")
+        code_to_idx = {}
+        def _match_summary_to_product_index(summary: str, prod_code: str, products: list, code_to_idx: dict):
+            if prod_code:
+                idx = code_to_idx.get((prod_code or "").upper())
+                if idx:
+                    return idx
+            for i, p in enumerate(products, start=1):
+                pid = (p.get("id") or "").strip()
+                if pid and summary_has_product_id(summary, pid):
+                    return i
+            for i, p in enumerate(products, start=1):
+                desc_code = (p.get("code") or extract_product_code(p.get("desc", ""))).upper()
+                if prod_code and desc_code and prod_code.upper() == desc_code:
+                    return i
+            return None
+        for idx, p in enumerate(products, start=1):
+            code = (p.get("code") or extract_product_code(p.get("desc", ""))).upper()
+            if code:
+                code_to_idx.setdefault(code, idx)
         default_pa_text = (
             "Information provided to Medtronic indicated that the complaint device "
             "was not available for evaluation."
         )
-        if pa_summary_lines:
-            values["analysis_results"] = "\n\n".join(pa_summary_lines)
+        pa_ids_raw = values.get("assoc_tx_product_analysis_ids", "") or ", ".join(assoc.get("product_analysis", []))
+        pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
+        per_product_pa = {}
+        global_pa_summaries = []
+        for txid in pa_ids:
+            log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
+            raw_summary, prod_code = read_analysis_summary_and_product_for_txid(page, txid)
+            summary = _clean_summary_text(raw_summary)
+            if not summary:
+                summary = "(No Analysis Summary found)"
+            idx = _match_summary_to_product_index(summary, prod_code, products, code_to_idx)
+            if idx:
+                key = f"analysis_{idx}"
+                prev = per_product_pa.get(idx, "")
+                per_product_pa[idx] = (prev + ("\n\n" if prev else "") + summary).strip()
+            else:
+                global_pa_summaries.append(summary)
+        for idx, text in per_product_pa.items():
+            values[f"analysis_{idx}"] = text
+        all_pa_blocks = list(per_product_pa.values()) + global_pa_summaries
+        if all_pa_blocks:
+            values["analysis_results"] = "\n\n".join(all_pa_blocks)
         else:
             values["analysis_results"] = default_pa_text
+        if values.get("analysis_results"):
+            values.setdefault("analysis_1", values["analysis_results"])
+        else:
+            values.setdefault("analysis_1", default_pa_text)
         inv_ids_raw = values.get("assoc_tx_investigation_ids", "") or ", ".join(assoc.get("investigation", []))
         inv_ids = [x.strip() for x in inv_ids_raw.split(",") if x.strip()]
-        inv_summary_lines = []
+        per_product_inv = {}
+        global_inv_summaries = []
         for txid in inv_ids:
             log(f"[INV-SUMMARY] Fetching Investigation Summary for INV ID: {txid}")
-            summary = read_investigation_summary_for_txid(page, txid)
-            if summary:
-                inv_summary_lines.append(summary)
+            raw_summary, prod_code = read_investigation_summary_and_product_for_txid(page, txid)
+            summary = _clean_summary_text(raw_summary)
+            if not summary:
+                summary = "(No Investigation Summary found)"
+            idx = _match_summary_to_product_index(summary, prod_code, products, code_to_idx)
+            if idx:
+                prev = per_product_inv.get(idx, "")
+                per_product_inv[idx] = (prev + ("\n\n" if prev else "") + summary).strip()
             else:
-                inv_summary_lines.append("(No Investigation Summary found)")
-        if inv_summary_lines:
-            values["investigation_summary"] = "\n\n".join(inv_summary_lines)
+                global_inv_summaries.append(summary)
+        for idx, text in per_product_inv.items():
+            values[f"investigation_{idx}"] = text
+        all_inv_blocks = list(per_product_inv.values()) + global_inv_summaries
+        if all_inv_blocks:
+            values["investigation_summary"] = "\n\n\n".join(all_inv_blocks)
+        else:
+            values.setdefault("investigation_summary", "")
         if values.get("analysis_results"):
             values.setdefault("analysis_1", values["analysis_results"])
         else:
@@ -2671,19 +2624,12 @@ def main():
             values[f"serial_or_lot_value_{idx}"] = value_2
         values["assoc_tx_product_analysis_ids"] = ", ".join(assoc["product_analysis"])
         values["assoc_tx_investigation_ids"]    = ", ".join(assoc["investigation"])
-        pa_by_product = collect_product_analysis(page, frame, products)  # returns mapping keyed by product code/pid/desc
-        for idx, p in enumerate(products, start=1):
-            pid  = (p.get("id") or "").strip()
-            code = (p.get("code") or extract_product_code(p.get("desc",""))).strip().upper()
-            desc = (p.get("desc") or "").strip()
-            summary = (
-                pa_by_product.get(code) or
-                (pa_by_product.get(pid) if pid else "") or
-                (pa_by_product.get(desc) if desc else "") or
-                ""
-            ).strip()
-            values[f"analysis_{idx}"] = _format_analysis_block(desc, summary)
-        values["analysis_results"] = "\n\n".join(values.get(f"analysis_{i+1}", DEFAULT_PA_TEXT) for i in range(len(products)))
+        if any(values.get(f"investigation_{i+1}", "").strip() for i in range(len(products))):
+            values["investigation_summary"] = "\n\n\n".join(
+                (values.get(f"investigation_{i+1}", "") or "").strip()
+                for i in range(len(products))
+                if (values.get(f"investigation_{i+1}", "") or "").strip()
+            )
         values['_product_count'] = len(products)
         if not (values.get('ir_name') or '').strip():
             values['ir_name'] = 'Customer'
