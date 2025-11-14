@@ -2346,22 +2346,18 @@ def read_investigation_summary_for_current_pli(page):
 def _apply_plural_s(xml: str, plural: bool) -> str:
     rx = re.compile(r'(\{\{|\[\[)\s*s\s*(\}\}|\]\])', re.I)
     return rx.sub('s' if plural else '', xml)
-_BOILERPLATE_SENTENCES_RX = re.compile(
+_BOILERPLATE_PHRASE_RX = re.compile(
     r'''
-        (?:^|\s)                                   # start of line or whitespace
-        (?:                                        # EITHER of these sentences:
-          This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+Returned\s+Product\s+Analysis\s*\(RPA\)[^.]*\.
-          |
-          The\s+RPA\s+Lab\s+rec(?:ei|ie)ved\s+one[^.]*\.
-        )
-        (?:\s+|$)                                   # trailing space/newline or end
+        This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+
+        Returned\s+Product\s+Analysis\s*\(RPA\)
     ''',
-    re.IGNORECASE | re.MULTILINE | re.VERBOSE
+    re.IGNORECASE | re.VERBOSE
 )
 def _strip_boilerplate_sentences(s: str) -> str:
     if not s:
         return s
-    return _BOILERPLATE_SENTENCES_RX.sub('', s).strip()
+    s = _BOILERPLATE_PHRASE_RX.sub('', s)
+    return re.sub(r'\s{2,}', ' ', s).strip()
 def _clean_summary_text(s: str) -> str:
     s = _normalize_text_preserve(s)
     s = _strip_boilerplate_sentences(s)
@@ -2607,7 +2603,7 @@ def main():
         for txid in pa_ids:
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
             raw_summary, prod_code = read_analysis_summary_and_product_for_txid(page, txid)
-            summary = _clean_summary_text(raw_summary)
+            summary = _normalize_text_preserve(raw_summary)
             if not summary:
                 summary = "(No Analysis Summary found)"
             idx = _match_summary_to_product_index(
@@ -2619,9 +2615,12 @@ def main():
                 tx_product_map,
             )
             if idx:
-                key = f"analysis_{idx}"
+                prod_desc = ""
+                if 1 <= idx <= len(products):
+                    prod_desc = products[idx - 1].get("desc", "")
+                formatted = _format_analysis_block(prod_desc, summary)
                 prev = per_product_pa.get(idx, "")
-                per_product_pa[idx] = (prev + ("\n\n" if prev else "") + summary).strip()
+                per_product_pa[idx] = (prev + ("\n\n" if prev else "") + formatted).strip()
             else:
                 global_pa_summaries.append(summary)
         for idx, text in per_product_pa.items():
@@ -2643,7 +2642,7 @@ def main():
         for txid in inv_ids:
             log(f"[INV-SUMMARY] Fetching Investigation Summary for INV ID: {txid}")
             raw_summary, prod_code = read_investigation_summary_and_product_for_txid(page, txid)
-            summary = _clean_summary_text(raw_summary)
+            summary = _normalize_text_preserve(raw_summary)
             if not summary:
                 summary = "(No Investigation Summary found)"
             idx = _match_summary_to_product_index(
