@@ -24,9 +24,6 @@ search:
 template_path: "./customer_letter_template.docx"
 output_dir: "./out"
 output_name_pattern: "Customer_Letter_{complaint_id}.docx"
-defaults:
-  closing_contact_name: "Tracy Landers"
-  closing_contact_title: "Sr MDR/Vigilance Manager | Customer Quality"
 field_map:
   ir_with_address: ["Customer Address", "IR Address", "Address"]
   report_number: ["MPXR Report #", "MPRR Report #", "Report #"]

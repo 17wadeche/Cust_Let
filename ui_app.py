@@ -11,6 +11,76 @@ CARD_BG = "#ffffff"
 TEXT_DARK = "#111827"
 TEXT_MUTED = "#6b7280"
 ACCENT = "#2563eb"
+class ExternalContactDialog(tk.Toplevel):
+    def __init__(self, master, contacts):
+        super().__init__(master)
+        self.title("Choose External Contact")
+        self.resizable(False, False)
+        self.configure(bg=BG_LIGHT)
+        self.contacts = contacts
+        self.result_index = None
+        self.transient(master)
+        self.grab_set()
+        label = ttk.Label(
+            self,
+            text=(
+                "Multiple partners were found in the Partners tab.\n"
+                "Select which one you want to use for the letter address (or cancel to keep the Initial Reporter)."
+            ),
+            style="CardText.TLabel",
+        )
+        label.grid(row=0, column=0, columnspan=2, sticky="w", padx=20, pady=(20, 10))
+        self.listbox = tk.Listbox(
+            self,
+            width=80,
+            height=min(6, max(3, len(contacts))),
+            bg="#ffffff",
+            fg=TEXT_DARK,
+        )
+        self.listbox.grid(row=1, column=0, columnspan=2, padx=20, pady=(0, 10), sticky="ew")
+        for c in contacts:
+            disp = c.get("display")
+            if not disp:
+                primary = (
+                    c.get("number")
+                    or c.get("name")
+                    or "(no id)"
+                )
+                secondary = (
+                    c.get("text")
+                    or c.get("address")
+                    or ""
+                ).strip()
+                disp = f"{primary} — {secondary}" if secondary else primary
+            display = disp.replace("\n", "  ")
+            self.listbox.insert("end", display)
+        if contacts:
+            self.listbox.selection_set(0)
+        btn_frame = ttk.Frame(self, style="Main.TFrame")
+        btn_frame.grid(row=2, column=0, columnspan=2, sticky="e", padx=20, pady=(0, 20))
+        ok_btn = ttk.Button(btn_frame, text="Use Selected", style="Accent.TButton", command=self._on_ok)
+        ok_btn.grid(row=0, column=0, padx=5)
+        cancel_btn = ttk.Button(btn_frame, text="Cancel", style="Ghost.TButton", command=self._on_cancel)
+        cancel_btn.grid(row=0, column=1, padx=5)
+        self.bind("<Return>", lambda e: self._on_ok())
+        self.bind("<Escape>", lambda e: self._on_cancel())
+        self.columnconfigure(0, weight=1)
+        self.update_idletasks()
+        if master is not None:
+            x = master.winfo_rootx() + (master.winfo_width() - self.winfo_width()) // 2
+            y = master.winfo_rooty() + (master.winfo_height() - self.winfo_height()) // 2
+            self.geometry(f"+{x}+{y}")
+    def _on_ok(self):
+        try:
+            sel = self.listbox.curselection()
+            if sel:
+                self.result_index = sel[0]
+        except Exception:
+            self.result_index = None
+        self.destroy()
+    def _on_cancel(self):
+        self.result_index = None
+        self.destroy()
 class CustomerLetterApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -110,6 +180,49 @@ class CustomerLetterApp(tk.Tk):
         self._build_step3_analysis()
         self._build_step4_investigation_per_product()
         self._show_step(self.step1_frame, "Step 1 of 4 · Enter GCH PE Number")
+    def _choose_external_contact_if_needed(self):
+        contacts = self.values.get("_external_contacts") or []
+        if len(contacts) <= 1:
+            return
+        dlg = ExternalContactDialog(self, contacts)
+        self.wait_window(dlg)
+        if dlg.result_index is None:
+            return
+        chosen = contacts[dlg.result_index]
+        name = (chosen.get("name") or "").strip()
+        addr = (chosen.get("address") or chosen.get("text") or "").strip()
+        block = chosen.get("display")
+        if not block:
+            if name and addr:
+                block = f"{name}\n{addr}"
+            elif name:
+                block = name
+            elif addr:
+                block = addr
+            else:
+                block = ""
+        self.values["external_contact"] = block or ""
+        if name and addr:
+            ir_block = f"{name}\n{addr}"
+        elif name:
+            ir_block = name
+        elif addr:
+            ir_block = addr
+        else:
+            ir_block = block or ""
+            for prefix in (
+                "External Contact:",
+                "Facility:",
+                "Initial Reporter:",
+                "Health Care Facility:",
+            ):
+                if ir_block.lower().startswith(prefix.lower()):
+                    ir_block = ir_block[len(prefix):].lstrip(" -")
+                    break
+        if name:
+            self.values["ir_name"] = name
+        if ir_block:
+            self.values["ir_with_address"] = ir_block
     def _build_step1(self):
         f = self.step1_frame
         ttk.Label(f, text="Enter GCH PE Number", style="CardTitle.TLabel").grid(
@@ -152,6 +265,7 @@ class CustomerLetterApp(tk.Tk):
         self.template_path = template_path
         self.out_dir = out_dir
         self.last_saved_path = None
+        self._choose_external_contact_if_needed()
         ir_text = self.values.get("ir_with_address", "") or ""
         self.ir_text_widget.delete("1.0", "end")
         self.ir_text_widget.insert("1.0", ir_text)
