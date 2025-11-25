@@ -7,23 +7,23 @@ from io import BytesIO
 from docx import Document
 from docx.oxml import parse_xml
 from datetime import datetime
+import os
 from docx.table import _Cell, Table
 from docx.oxml.ns import qn
 import html
+from xml.sax.saxutils import escape as _xml_escape
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 ENDS_WITH_PRODUCT     = "substring(@id, string-length(@id) - string-length('-Product') + 1) = '-Product'"
 ENDS_WITH_DESCRIPTION = "substring(@id, string-length(@id) - string-length('-Description') + 1) = '-Description'"
-# Convert newlines inside <w:t> to <w:br/> (so Word shows real line breaks)
 _WT_RX = re.compile(r'(<w:t\b[^>]*>)(.*?)(</w:t>)', re.S | re.I)
 def _xml_convert_newlines_to_br(xml: str) -> str:
     def repl(m):
         open_tag, text, close_tag = m.group(1), m.group(2), m.group(3)
-        if '\n' not in text:
-            if 'xml:space' not in open_tag:
-                open_tag = open_tag[:-1] + ' xml:space="preserve">'
-            return open_tag + text + close_tag
-        parts = [html.escape(p) for p in text.split('\n')]
         if 'xml:space' not in open_tag:
             open_tag = open_tag[:-1] + ' xml:space="preserve">'
+        if '\n' not in text:
+            return open_tag + text + close_tag
+        parts = text.split('\n')
         return open_tag + ('</w:t><w:br/><w:t xml:space="preserve">'.join(parts)) + close_tag
     return _WT_RX.sub(repl, xml)
 def _norm(s: str) -> str:
@@ -268,21 +268,26 @@ def _patterns_for_key(human_label: str):
         re.compile(r'\[' + gap + r'\[' + r'\s*' + inner + r'\s*' + r'\]' + gap + r'\]', flags),
         re.compile(r'\{' + gap + r'\{' + r'\s*' + inner + r'\s*' + r'\}' + gap + r'\}', flags),
     )
+from xml.sax.saxutils import escape as _xml_escape
+
 def _xml_replace_all(xml: str, mapping: dict) -> str:
     fast = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I | re.S)
+    def _escape_value(v) -> str:
+        s = str(v)
+        return _xml_escape(s, {'"': '&quot;', "'": '&apos;'})
     def _quick(m):
         k = _norm_key(m.group(2))
         if k in mapping:
             v = mapping[k]
             if v is not None and v != '':
-                return str(v)               # <-- ensure string
+                return _escape_value(v)
         return m.group(0)
     xml_new = fast.sub(_quick, xml)
     keys_seen = set()
     for raw_key, value in mapping.items():
         if value in (None, ''):
             continue
-        value_str = str(value)               # <-- ensure string once
+        value_str = _escape_value(value)
         for label in {raw_key, raw_key.replace('_', ' ')}:
             if label in keys_seen:
                 continue
@@ -299,6 +304,31 @@ _PLACEHOLDER_FINDER = re.compile(
     r'(?P<close>\}\}|\]\])',                # }} or ]]
     re.I | re.S
 )
+def _remove_report_number_block_docx(doc: Document, report_number: str):
+    if report_number:
+        return
+    def _norm_txt(s):
+        return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
+    def _is_report_line_text(t: str) -> bool:
+        t = _norm_txt(t)
+        if not t:
+            return False
+        if re.search(r'\bmpxr\s*report\b',t):
+            return True
+        return False
+    for tbl in doc.tables:
+        rows_to_del = []
+        for i, row in enumerate(tbl.rows):
+            row_txt = " ".join(_norm_txt(c.text) for c in row.cells)
+            if _is_report_line_text(row_txt):
+                rows_to_del.append(i)
+        for i in reversed(rows_to_del):
+            tr = tbl.rows[i]._tr
+            tbl._tbl.remove(tr)
+    for p in list(doc.paragraphs):
+        txt = p.text or ""
+        if _is_report_line_text(txt) or ("{{" in txt.lower() and "report" in txt.lower()):
+            p._element.getparent().remove(p._element)
 def _remove_rb_reference_block_docx(doc: Document, rb_value: str):
     if rb_value:
         return
@@ -324,6 +354,38 @@ def _remove_rb_reference_block_docx(doc: Document, rb_value: str):
         txt = p.text or ""
         if _is_rb_line_text(txt) or ("{{" in txt.lower() and "ref" in txt.lower()):
             p._element.getparent().remove(p._element)
+def _remove_event_date_block_docx(doc: Document, event_date: str):
+    if event_date:
+        return
+    def _norm_txt(s):
+        return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
+    def _is_event_date_line_text(t: str) -> bool:
+        t = _norm_txt(t)
+        if not t:
+            return False
+        if re.search(r'\bevent\s*date\b', t):
+            return True
+        if re.search(r'\bdate\s*of\s*event\b', t):
+            return True
+        return False
+    for tbl in doc.tables:
+        rows_to_del = []
+        for i, row in enumerate(tbl.rows):
+            row_txt = " ".join(_norm_txt(c.text) for c in row.cells)
+            if _is_event_date_line_text(row_txt):
+                rows_to_del.append(i)
+        for i in reversed(rows_to_del):
+            tr = tbl.rows[i]._tr
+            tbl._tbl.remove(tr)
+    for p in list(doc.paragraphs):
+        txt = p.text or ""
+        if _is_event_date_line_text(txt):
+            p._element.getparent().remove(p._element)
+        else:
+            low = txt.lower()
+            if "{{" in low or "[[" in low:
+                if "event_date" in low or ("event" in low and "date" in low):
+                    p._element.getparent().remove(p._element)
 def replace_everywhere(doc: Document, mapping: dict):
     resolved = _build_alias_mapping(mapping)
     for part in doc.part.package.parts:
@@ -361,6 +423,8 @@ def fill_docx(template_path, out_path, mapping, products=None):
     buf.seek(0)
     doc = Document(buf)
     _remove_rb_reference_block_docx(doc, (mapping.get('rb_reference') or '').strip())
+    _remove_event_date_block_docx(doc, (mapping.get('event_date') or '').strip())
+    _remove_report_number_block_docx(doc, (mapping.get('report_number') or '').strip())
     if products is not None:
         _update_products_table(doc, products)
     doc.save(out_path)
@@ -668,6 +732,75 @@ DEFAULT_PA_TEXT = (
     "Information provided to Medtronic indicated that the complaint device "
     "was not available for evaluation."
 )
+DEFAULT_INV_TEXT = (
+    "Medtronic conducted an investigation based upon all received information. "
+    "Without a product returned for evaluation a likely cause for the reported "
+    "condition could not be established. Medtronic’s assessment determined that "
+    "manufacturing action is not required at this time. To ensure product oversight, "
+    "this complaint report is incorporated into Medtronic’s complaint monitoring and "
+    "tracking system. The manufacturing records for each device are thoroughly "
+    "reviewed to ensure the product meets its quality specifications. Should new "
+    "information become available the file will be re-opened and the investigation "
+    "summary will be amended as appropriate."
+)
+INV_ASSESSMENT_TAG = (
+    "Medtronic's assessment determined that manufacturing action is not required at this time. "
+    "To ensure product oversight, this complaint report is incorporated into Medtronic’s complaint monitoring and tracking system. "
+    "Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate."
+)
+def _extract_investigation_body(text: str) -> str:
+    if not text:
+        return ""
+    lower = text.lower()
+    start_phrase = "based on the evidence"
+    idx = lower.find(start_phrase)
+    if idx != -1:
+        body_text = text[idx:]
+    else:
+        boiler_rx = re.compile(
+            r'^\s*medtronic\s+conducted\s+an\s+investigation\s+based\s+upon\s+all\s+information\s+received\.?\s*',
+            re.IGNORECASE
+        )
+        body_text = boiler_rx.sub("", text, count=1)
+    lower_body = body_text.lower()
+    dhr_phrase = "device history record"
+    dhr_rel = lower_body.find(dhr_phrase)
+    if dhr_rel == -1:
+        return body_text.strip()
+    snippet = body_text[:dhr_rel]
+    last_dot = snippet.rfind(".")
+    last_exc = snippet.rfind("!")
+    last_q   = snippet.rfind("?")
+    stop_rel = max(last_dot, last_exc, last_q)
+    if stop_rel == -1:
+        return body_text[:dhr_rel].strip()
+    return body_text[:stop_rel + 1].strip()
+def _strip_leading_based_on_evidence(text: str) -> str:
+    if not text:
+        return ""
+    pattern = re.compile(
+        r'^\s*based on the evidence available[,:]?\s*',
+        re.IGNORECASE
+    )
+    m = pattern.match(text)
+    if not m:
+        return text.strip()
+    rest = text[m.end():].lstrip()
+    if not rest:
+        return ""
+    return rest[0].upper() + rest[1:]
+def _postprocess_investigation_text(text: str) -> str:
+    if not text:
+        return ""
+    body = _extract_investigation_body(text)
+    body = _strip_leading_based_on_evidence(body)
+    if INV_ASSESSMENT_TAG.lower() in body.lower():
+        return body.strip()
+    if body.endswith((".", "!", "?")):
+        sep = " "
+    else:
+        sep = ". "
+    return (body + sep + INV_ASSESSMENT_TAG).strip()
 def _format_analysis_block(product_desc: str, summary: str) -> str:
     s = "" if summary is None else _normalize_text_preserve(summary)
     if not s.strip() or s.strip() == DEFAULT_PA_TEXT:
@@ -766,6 +899,24 @@ def read_all_products(page, root_frame):
             out = []
             for i in range(n):
                 row = rows.nth(i)
+                complaint_val = ""
+                complaint_td = row.locator(
+                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') "
+                    "and contains(@id,'-Complaint')]"
+                ).first
+                if complaint_td.count():
+                    span = complaint_td.locator("xpath=.//span").first
+                    if span.count():
+                        complaint_val = clean(
+                            span.get_attribute("title")
+                            or span.inner_text()
+                        )
+                    else:
+                        complaint_val = clean(complaint_td.inner_text())
+                complaint_norm = (complaint_val or "").strip().lower()
+                if complaint_norm.startswith("no"):
+                    log(f"[PLI] Skipping product row {i+1}/{n} because Complaint={complaint_val!r}")
+                    continue
                 prod_cell = row.locator(
                     f"xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and {ENDS_WITH_PRODUCT}]"
                 ).first
@@ -810,9 +961,16 @@ def read_all_products(page, root_frame):
                         if lot_val:
                             break
                 if pid or pdesc or sn_val or lot_val:
-                    out.append({"id": pid, "desc": pdesc, "code": pcode, "sn": sn_val, "lot": lot_val})
+                    out.append({
+                        "id": pid,
+                        "desc": pdesc,
+                        "code": pcode,
+                        "sn": sn_val,
+                        "lot": lot_val,
+                        "complaint": complaint_val or "",
+                    })
             if out:
-                return out  # Done with GUIDE table
+                return out
     fr = find_frame_with(page, "xpath=//*[contains(@id,'btadmini_table')]")
     if not fr:
         return []
@@ -821,6 +979,18 @@ def read_all_products(page, root_frame):
     out = []
     for i in range(n):
         row = rows.nth(i)
+        complaint_val = ""
+        complaint_span = row.locator(
+            "xpath=.//span[contains(@id,'zcomplaint') or @aria-label='Complaint']"
+        ).first
+        if complaint_span.count():
+            complaint_val = clean(
+                complaint_span.get_attribute("title") or complaint_span.inner_text()
+            )
+        complaint_norm = (complaint_val or "").strip().lower()
+        if complaint_norm.startswith("no"):
+            log(f"[PLI-btadmini] Skipping product row {i+1}/{n} because Complaint={complaint_val!r}")
+            continue
         ordered_link = row.locator("xpath=.//a[contains(@id,'ordered_prod')]").first
         pid = _get_attr_or_text(ordered_link) if ordered_link.count() else ""
         pdesc = ""
@@ -835,7 +1005,14 @@ def read_all_products(page, root_frame):
         sn_val = ""
         lot_val = ""
         if pid or pdesc:
-            out.append({"id": pid, "desc": pdesc, "code": pcode, "sn": sn_val, "lot": lot_val})
+            out.append({
+                "id": pid,
+                "desc": pdesc,
+                "code": pcode,
+                "sn": sn_val,
+                "lot": lot_val,
+                "complaint": complaint_val or "",
+            })
     return out
 def _dates_table(frame):
     return frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-DatesTable')]]").first
@@ -875,6 +1052,40 @@ def _aer_row_by_type(tbl, *type_fragments):
         if row.count():
             return row
     return None
+def _aer_rows_by_type(tbl, *type_fragments):
+    rows = []
+    for t in type_fragments:
+        cand = tbl.locator(
+            "xpath=.//tr[td[starts-with(@id,'GUIDE-AdditionalExternalReferencesTable-') "
+            "and contains(@id,'-ExtReferenceType') and normalize-space(.)=$t]]"
+        ).filter(has_text=t)
+        for i in range(cand.count()):
+            rows.append(cand.nth(i))
+    if rows:
+        return rows
+    for t in type_fragments:
+        low = t.lower()
+        cand = tbl.locator(
+            "xpath=.//tr[td[starts-with(@id,'GUIDE-AdditionalExternalReferencesTable-') "
+            "and contains(@id,'-ExtReferenceType') and "
+            "contains(translate(normalize-space(.),"
+            "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+            f" '{low}')]]"
+        )
+        for i in range(cand.count()):
+            rows.append(cand.nth(i))
+    return rows
+def _aer_comment_from_row(row):
+    try:
+        td = row.locator(
+            "xpath=.//td[starts-with(@id,'GUIDE-AdditionalExternalReferencesTable-') "
+            "and contains(@id,'-ExtReferenceText')]"
+        ).first
+        if td.count():
+            return clean(td.inner_text())
+    except Exception:
+        pass
+    return ""
 def _aer_number_from_row(row):
     for suffix in ("-ExtReferenceNumber", "-ExtReferenceID", "reference_number", "reference_id"):
         td = row.locator(
@@ -896,9 +1107,23 @@ def read_external_refs(page, root_frame):
     rb_row = _aer_row_by_type(tbl, "RB Reference", "RB", "RBReference")
     if rb_row:
         out["rb_reference"] = _aer_number_from_row(rb_row)
-    rep_row = _aer_row_by_type(tbl, "MPXR", "MPRR", "Report", "Report Number")
+    rep_row = _aer_row_by_type(tbl, "MPXR")
     if rep_row:
         out["report_number"] = _aer_number_from_row(rep_row)
+    contact_rows = _aer_rows_by_type(
+        tbl,
+        "External Contact", "ExternalContact", "Ext Contact", "Ext. Contact"
+    )
+    contacts = []
+    for row in contact_rows or []:
+        num = _aer_number_from_row(row)
+        txt = _aer_comment_from_row(row)
+        contacts.append({
+            "number": num,
+            "text": txt,
+        })
+
+    out["external_contacts"] = contacts
     return out
 def _find_latest_text_table(page):
     tables = []
@@ -1165,7 +1390,7 @@ def _find_latest_analysis_table_nearby(page):
 def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
-        return ""
+        return None
     row = None
     for t in wanted_labels:
         cand = tbl.locator(
@@ -1185,16 +1410,13 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
             if cand.count():
                 row = cand; break
     if not row:
-        row = tbl.locator("xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-Text')]]").first
-        if not row.count():
-            return ""
+        return None
     td = row.locator(
         "xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') "
         "and contains(@id,'-Text') and not(contains(@id,'-TextType'))]"
     ).first
     if td.count():
         if preserve_format:
-            expand_full_text_if_collapsed(fr)
             txt = _safe_td_text(td, preserve=True)
             if txt:
                 return txt
@@ -1228,7 +1450,7 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         except Exception:
             raw = lab.evaluate("n => n.textContent || ''")
         return _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
-    return ""
+    return None
 def read_analysis_summary_for_current_pli(page):
     labels = [
         "Analysis Summary",
@@ -2338,10 +2560,7 @@ def read_investigation_summary_for_txid(page, txid: str) -> str:
     return (txt or "").strip()
 def read_investigation_summary_for_current_pli(page):
     labels = [
-        "Investigation Summary",
         "Summary of Investigation",
-        "Investigation Conclusion",
-        "Investigation Findings",
     ]
     return (read_text_by_labels(page, labels, preserve_format=True) or "").strip()
 def _apply_plural_s(xml: str, plural: bool) -> str:
@@ -2352,6 +2571,7 @@ _BOILERPLATE_SENTENCE_RX = re.compile(
     (?P<prefix>^|[.!?]\s+|\n+)             # sentence boundary before the boilerplate
     (?P<sentence>
         (?:This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+
+        |
            Returned\s+Product\s+Analysis\s*\(RPA\)\s*Lab
         |
            (?:The\s+)?RPA\s+Lab\s+received\s+one
@@ -2370,6 +2590,62 @@ def _strip_boilerplate_sentences(s: str) -> str:
     out = re.sub(r'[ \t]{2,}', ' ', out)
     out = re.sub(r'\n{3,}', '\n\n', out)
     return out.strip()
+def _strip_analysis_phrases(text: str) -> str:
+    if not text:
+        return ""
+    def _remove_sentence_for_phrase(t: str, phrase: str) -> str:
+        pattern = re.compile(
+            rf'(^|\s*[\.\?!]\s+|\n+){re.escape(phrase)}[^\.?!]*[\.?!]\s*',
+            flags=re.IGNORECASE
+        )
+        def repl(m: re.Match) -> str:
+            return m.group(1)
+        return pattern.sub(repl, t)
+    for phrase in ("Based on the evidence available", "The root cause of this"):
+        text = _remove_sentence_for_phrase(text, phrase)
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+def get_partners_for_ui(frame):
+    tbl = _partners_table(frame)
+    if not tbl:
+        print("[Partners] No partners table found for UI.")
+        return []
+    rows = tbl.locator(
+        "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') "
+        "and contains(@id,'-PartnerFunction')]]"
+    )
+    partners = []
+    n = rows.count()
+    print(f"[Partners] Partner table rows detected: {n}")
+    for i in range(n):
+        row = rows.nth(i)
+        pf_cell = row.locator(
+            "xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-') "
+            "and contains(@id,'-PartnerFunction')]"
+        ).first
+        pf_text = clean(pf_cell.inner_text()) if pf_cell.count() else ""
+        name = _cell_text_in_same_row(row, "Name")
+        addr = (
+            _cell_text_in_same_row(row, "Address")
+            or _cell_text_in_same_row(row, "address_short")
+        )
+        block = "\n".join(x for x in [name, addr] if x).strip()
+        partners.append(
+            {
+                "partner_function": pf_text,
+                "name": name,
+                "address": addr,
+                "display": (
+                    f"{pf_text}: {block}" if block and pf_text else
+                    block or name or pf_text or "(no name)"
+                ),
+            }
+        )
+    print(f"[Partners] partners_for_ui count: {len(partners)}")
+    for p in partners:
+        print("   -", p["display"].replace("\n", " / "))
+    return partners
 def scrape_complaint(complaint_id: str, cfg_path: str):
     cfg_path = Path(cfg_path)
     cfg = yaml.safe_load(cfg_path.read_text())
@@ -2513,11 +2789,15 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 else:
                     _debug_list_pf_from_correct_table(pframe)
                     irname = get_initial_reporter_name(pframe)
+                    irname = get_initial_reporter_name(pframe)
                     if irname:
                         values['ir_name'] = irname
                     facility_block = get_facility_name_and_address(pframe)
                     if facility_block:
                         values['ir_with_address'] = facility_block
+                    partners_for_ui = get_partners_for_ui(pframe)
+                    if partners_for_ui:
+                        values["_external_contacts"] = partners_for_ui
                     print("[Partners] ir_name =", values.get('ir_name', ''))
                     print("[Partners] ir_with_address =", values.get('ir_with_address', ''))
                     log(f"[Partners] ir_name = {values.get('ir_name','')}")
@@ -2534,7 +2814,15 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             values["rb_reference"] = ext["rb_reference"]
         if ext.get("report_number"):
             values["report_number"] = ext["report_number"]
-        log(f"[AER] rb_reference={values.get('rb_reference','')}, report_number={values.get('report_number','')}")
+        contacts = ext.get("external_contacts") or []
+        values["_aer_external_contacts"] = contacts  
+        if contacts and not values.get("external_contact"):
+            values["external_contact"] = contacts[0].get("number", "")
+        log(
+            f"[AER] rb_reference={values.get('rb_reference','')}, "
+            f"report_number={values.get('report_number','')}, "
+            f"external_contacts={len(contacts)}"
+        )
         log("[step 3] Dates tab → event_date")
         event_date_text = get_event_date(page)
         if event_date_text:
@@ -2566,29 +2854,69 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             code_to_idx: dict,
             tx_product_map: dict,
         ):
-            assoc_code = (tx_product_map.get(txid) or "").strip().upper()
-            if assoc_code:
-                idx = code_to_idx.get(assoc_code)
+            def _fuzzy_lookup(code: str):
+                if not code:
+                    return None
+                c = code.strip().upper()
+                if not c:
+                    return None
+                idx = code_to_idx.get(c)
                 if idx:
-                    log(f"[Match] txid={txid} matched via AssocTx grid product={assoc_code!r} → product index {idx}")
                     return idx
-            bc_code = (prod_code_from_bc or "").strip().upper()
-            if bc_code:
-                idx = code_to_idx.get(bc_code)
-                if idx:
-                    log(f"[Match] txid={txid} matched via bcTitle product={bc_code!r} → product index {idx}")
+                candidates = []
+                for key, idx in code_to_idx.items():
+                    if c in key or key in c:
+                        candidates.append((key, idx))
+                if len(candidates) == 1:
+                    key, idx = candidates[0]
+                    log(
+                        f"[Match] txid={txid} fuzzy-matched code={c!r} "
+                        f"to key={key!r} → product index {idx}"
+                    )
                     return idx
+                if candidates:
+                    log(
+                        f"[Match] txid={txid} ambiguous fuzzy match for code={c!r} "
+                        f"candidates={[k for k, _ in candidates]}"
+                    )
+                return None
+            assoc_code_raw = tx_product_map.get(txid) or ""
+            assoc_idx = _fuzzy_lookup(assoc_code_raw)
+            if assoc_idx:
+                log(
+                    f"[Match] txid={txid} matched via AssocTx grid "
+                    f"product={assoc_code_raw.strip().upper()!r} → product index {assoc_idx}"
+                )
+                return assoc_idx
+            bc_code_raw = prod_code_from_bc or ""
+            bc_idx = _fuzzy_lookup(bc_code_raw)
+            if bc_idx:
+                log(
+                    f"[Match] txid={txid} matched via bcTitle product="
+                    f"{bc_code_raw.strip().upper()!r} → product index {bc_idx}"
+                )
+                return bc_idx
             for i, p in enumerate(products, start=1):
                 pid = (p.get("id") or "").strip()
                 if pid and summary_has_product_id(summary, pid):
-                    log(f"[Match] txid={txid} matched via summary_has_product_id({pid!r}) → product index {i}")
+                    log(
+                        f"[Match] txid={txid} matched via summary_has_product_id({pid!r}) "
+                        f"→ product index {i}"
+                    )
                     return i
             for i, p in enumerate(products, start=1):
-                desc_code = (p.get("code") or extract_product_code(p.get("desc", ""))).upper()
-                for code in (assoc_code, bc_code):
-                    if code and desc_code and code == desc_code:
-                        log(f"[Match] txid={txid} matched via desc_code={desc_code!r} → product index {i}")
-                        return i
+                desc = (p.get("desc") or "").strip()
+                if not desc:
+                    continue
+                code_token = extract_product_code(desc)
+                if not code_token:
+                    continue
+                if re.search(rf"\b{re.escape(code_token)}\b", summary, re.I):
+                    log(
+                        f"[Match] txid={txid} matched via summary product code token "
+                        f"{code_token!r} → product index {i}"
+                    )
+                    return i
             log(f"[Match] txid={txid} could NOT be matched to any product")
             return None
         for idx, p in enumerate(products, start=1):
@@ -2605,11 +2933,12 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
         pa_ids_raw = values.get("assoc_tx_product_analysis_ids", "") or ", ".join(assoc.get("product_analysis", []))
         pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
         per_product_pa = {}
-        global_pa_summaries = []
+        unmatched_pa = []  # just for logging/debug, not used in outputs
         for txid in pa_ids:
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
             raw_summary, prod_code = read_analysis_summary_and_product_for_txid(page, txid)
             summary = _normalize_text_preserve(raw_summary)
+            summary = _strip_analysis_phrases(summary)
             if not summary:
                 summary = "(No Analysis Summary found)"
             idx = _match_summary_to_product_index(
@@ -2628,10 +2957,11 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 prev = per_product_pa.get(idx, "")
                 per_product_pa[idx] = (prev + ("\n\n" if prev else "") + formatted).strip()
             else:
-                global_pa_summaries.append(summary)
+                unmatched_pa.append(summary)
+                log(f"[PA-SUMMARY] txid={txid} could not be matched to any included product; analysis ignored.")
         for idx, text in per_product_pa.items():
             values[f"analysis_{idx}"] = text
-        all_pa_blocks = list(per_product_pa.values()) + global_pa_summaries
+        all_pa_blocks = list(per_product_pa.values())
         if all_pa_blocks:
             values["analysis_results"] = "\n\n".join(all_pa_blocks)
         else:
@@ -2644,13 +2974,14 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
         inv_ids_raw = values.get("assoc_tx_investigation_ids", "") or ", ".join(assoc.get("investigation", []))
         inv_ids = [x.strip() for x in inv_ids_raw.split(",") if x.strip()]
         per_product_inv = {}
-        global_inv_summaries = []
+        unmatched_inv = []
         for txid in inv_ids:
             log(f"[INV-SUMMARY] Fetching Investigation Summary for INV ID: {txid}")
             raw_summary, prod_code = read_investigation_summary_and_product_for_txid(page, txid)
             summary = _normalize_text_preserve(raw_summary)
+            summary = _postprocess_investigation_text(summary)
             if not summary:
-                summary = "(No Investigation Summary found)"
+                summary = ""
             idx = _match_summary_to_product_index(
                 txid,
                 summary,
@@ -2663,14 +2994,15 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 prev = per_product_inv.get(idx, "")
                 per_product_inv[idx] = (prev + ("\n\n" if prev else "") + summary).strip()
             else:
-                global_inv_summaries.append(summary)
+                unmatched_inv.append(summary)
+                log(f"[INV-SUMMARY] txid={txid} could not be matched to any included product; investigation ignored.")
         for idx, text in per_product_inv.items():
             values[f"investigation_{idx}"] = text
-        all_inv_blocks = list(per_product_inv.values()) + global_inv_summaries
+        all_inv_blocks = list(per_product_inv.values())
         if all_inv_blocks:
             values["investigation_summary"] = "\n\n\n".join(all_inv_blocks)
         else:
-            values.setdefault("investigation_summary", "")
+            values.setdefault("investigation_summary", DEFAULT_INV_TEXT)
         if values.get("analysis_results"):
             values.setdefault("analysis_1", values["analysis_results"])
         else:
@@ -2683,7 +3015,7 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             if values.get("investigation_summary"):
                 values.setdefault("investigation_1", values["investigation_summary"])
             else:
-                values.setdefault("investigation_1", "")
+                values.setdefault("investigation_1", DEFAULT_INV_TEXT)
         for idx, p in enumerate(products, start=1):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"]   = (p.get("id") or code)
@@ -2735,11 +3067,22 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
         )
         for idx in range(1, len(products) + 1):
             a_key = f"analysis_{idx}"
-            if not (values.get(a_key) or "").strip():
-                values[a_key] = default_pa_text
             i_key = f"investigation_{idx}"
-            if not (values.get(i_key) or "").strip():
-                values[i_key] = ""
+            analysis_text = (values.get(a_key) or "").strip()
+            if not analysis_text or analysis_text == DEFAULT_PA_TEXT:
+                values[a_key] = DEFAULT_PA_TEXT
+                values[i_key] = DEFAULT_INV_TEXT
+            else:
+                inv_text = (values.get(i_key) or "").strip()
+                if not inv_text:
+                    values[i_key] = DEFAULT_INV_TEXT
+        for k, v in list(values.items()):
+            if not re.match(r"^investigation_\d+$", k):
+                continue
+            if not (v or "").strip():
+                continue
+            body = _extract_investigation_body(v)
+            values[k] = _strip_leading_based_on_evidence(body)
         log("Collected fields:")
         log(json.dumps(values, indent=2))    
         browser.close()
