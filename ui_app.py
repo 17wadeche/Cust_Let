@@ -1,9 +1,33 @@
 import os
 import sys
+from pathlib import Path
+def _set_playwright_paths():
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = Path(sys._MEIPASS).resolve()          # likely ...\dist\App\_internal
+    elif getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent # ...\dist\App
+    else:
+        base = Path(__file__).resolve().parent
+    candidates = [
+        base / "playwright" / "driver" / "package",                 # base == _internal
+        base / "_internal" / "playwright" / "driver" / "package",   # base == dist\App
+    ]
+    pw_pkg = next((p for p in candidates if p.exists()), None)
+    if not pw_pkg:
+        print("Playwright package not found. Tried:")
+        for c in candidates:
+            print("  -", c)
+        return
+    pw_browsers = pw_pkg / ".local-browsers"
+    os.environ["PLAYWRIGHT_DRIVER_SEARCH_PATH"] = str(pw_pkg)
+    if pw_browsers.exists():
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(pw_browsers)
+_set_playwright_paths()
+print("PW_DRIVER_SEARCH_PATH =", os.environ.get("PLAYWRIGHT_DRIVER_SEARCH_PATH"))
+print("PW_BROWSERS_PATH      =", os.environ.get("PLAYWRIGHT_BROWSERS_PATH"))
 import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from pathlib import Path
 from scrape_and_generate import scrape_complaint, fill_docx
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 BG_LIGHT = "#f3f4f6"

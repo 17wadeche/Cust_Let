@@ -2655,7 +2655,9 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
     values = {}
     products = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=cfg.get('headless', False))
+        browser = p.chromium.launch(
+            headless=cfg.get("headless", False)
+        )
         context = browser.new_context()
         page = context.new_page()
         log(f"Navigating to CRM: {cfg['crm_url']}")
@@ -2788,7 +2790,6 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                     log("[Partners] Could not locate the partners frame.")
                 else:
                     _debug_list_pf_from_correct_table(pframe)
-                    irname = get_initial_reporter_name(pframe)
                     irname = get_initial_reporter_name(pframe)
                     if irname:
                         values['ir_name'] = irname
