@@ -3,14 +3,14 @@ import sys
 from pathlib import Path
 def _set_playwright_paths():
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        base = Path(sys._MEIPASS).resolve()          # likely ...\dist\App\_internal
+        base = Path(sys._MEIPASS).resolve() 
     elif getattr(sys, "frozen", False):
-        base = Path(sys.executable).resolve().parent # ...\dist\App
+        base = Path(sys.executable).resolve().parent
     else:
         base = Path(__file__).resolve().parent
     candidates = [
-        base / "playwright" / "driver" / "package",                 # base == _internal
-        base / "_internal" / "playwright" / "driver" / "package",   # base == dist\App
+        base / "playwright" / "driver" / "package",
+        base / "_internal" / "playwright" / "driver" / "package",
     ]
     pw_pkg = next((p for p in candidates if p.exists()), None)
     if not pw_pkg:

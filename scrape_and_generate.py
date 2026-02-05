@@ -16,6 +16,11 @@ os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 ENDS_WITH_PRODUCT     = "substring(@id, string-length(@id) - string-length('-Product') + 1) = '-Product'"
 ENDS_WITH_DESCRIPTION = "substring(@id, string-length(@id) - string-length('-Description') + 1) = '-Description'"
 _WT_RX = re.compile(r'(<w:t\b[^>]*>)(.*?)(</w:t>)', re.S | re.I)
+def get_user_data_dir(app_name="CustomerLetterGenerator"):
+    base = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA") or str(Path.home())
+    d = Path(base) / app_name / "chrome-profile"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
 def _xml_convert_newlines_to_br(xml: str) -> str:
     def repl(m):
         open_tag, text, close_tag = m.group(1), m.group(2), m.group(3)
@@ -2655,11 +2660,16 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
     values = {}
     products = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=cfg.get("headless", False)
+        user_data_dir = cfg.get("user_data_dir") or get_user_data_dir()
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            headless=cfg.get("headless", False),
+            channel="chrome",  
+            args=[
+                "--disable-features=IsolateOrigins,site-per-process", 
+            ],
         )
-        context = browser.new_context()
-        page = context.new_page()
+        page = context.pages[0] if context.pages else context.new_page()
         log(f"Navigating to CRM: {cfg['crm_url']}")
         page.goto(cfg['crm_url'], wait_until="load")
         sso_wait = cfg.get('sso_pause_seconds', 0)
@@ -3086,7 +3096,7 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             values[k] = _strip_leading_based_on_evidence(body)
         log("Collected fields:")
         log(json.dumps(values, indent=2))    
-        browser.close()
+        context.close()
     return values, products, cfg, template_path, out_dir
 def main():
     if len(sys.argv) < 3:
