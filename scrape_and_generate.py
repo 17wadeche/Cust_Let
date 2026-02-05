@@ -38,9 +38,21 @@ def _cell_txt(cell: _Cell) -> str:
 def _delete_row(table: Table, row_idx: int):
     tr = table.rows[row_idx]._tr
     table._tbl.remove(tr)
+def _clean_sn(sn: str) -> str:
+    s = (sn or "").strip()
+    s = re.sub(r'^\s*(sn|s/?n)\s*[:#-]?\s*', '', s, flags=re.I).strip()
+    if s.lower() in {"", "na", "n/a", "none", "-"}:
+        return ""
+    return s
+def _clean_lot(lot: str) -> str:
+    s = (lot or "").strip()
+    s = re.sub(r'^\s*(ln|lot)\s*[:#-]?\s*', '', s, flags=re.I).strip()
+    if s.lower() in {"", "lot", "na", "n/a", "none", "-"}:
+        return ""
+    return s
 def _join_serial_lot(p) -> str:
-    sn  = (p.get('sn')  or '').strip()
-    lot = (p.get('lot') or '').strip()
+    sn  = _clean_sn(p.get('sn'))
+    lot = _clean_lot(p.get('lot'))
     if sn and lot:
         return f"SN: {sn} / LN: {lot}"
     elif sn:
@@ -48,7 +60,7 @@ def _join_serial_lot(p) -> str:
     elif lot:
         return f"LN: {lot}"
     else:
-        return ""   # or "Unknown" if you prefer
+        return ""
 def _row_text(row) -> str:
     return " ".join(_cell_txt(c) for c in row.cells)
 def _looks_like_products_header_row(row) -> bool:
@@ -255,7 +267,7 @@ def _build_alias_mapping(mapping: dict) -> dict:
     out.update({k: v for k, v in aliases.items() if v})
     return out
 def _split_tolerant(label: str) -> str:
-    gap = r'(?:\s|<[^>]*?>)*?'    # non-greedy: spans across run/para tags, hyperlinks, etc.
+    gap = r'(?:\s|<[^>]*?>)*?'
     toks = [t for t in re.split(r'[^A-Za-z0-9]+', (label or '').strip()) if t]
     if not toks: return ''
     sep = r'(?:\s|[/\-\._]|<[^>]*?>)*?'
@@ -274,7 +286,6 @@ def _patterns_for_key(human_label: str):
         re.compile(r'\{' + gap + r'\{' + r'\s*' + inner + r'\s*' + r'\}' + gap + r'\}', flags),
     )
 from xml.sax.saxutils import escape as _xml_escape
-
 def _xml_replace_all(xml: str, mapping: dict) -> str:
     fast = re.compile(r'(\{\{|\[\[)\s*(.*?)\s*(\}\}|\]\])', re.I | re.S)
     def _escape_value(v) -> str:
@@ -302,16 +313,16 @@ def _xml_replace_all(xml: str, mapping: dict) -> str:
             xml_new = pat_cu.sub(lambda _m, vs=value_str: vs, xml_new)
     return xml_new
 _PLACEHOLDER_FINDER = re.compile(
-    r'(?P<open>\{\{|\[\[)'                  # {{ or [[
-    r'(?:\s|<[^>]*?>)*?'                    # gaps (tags/whitespace) between open and label
-    r'(?P<label>[^}\]]{1,120}?)'            # the label (up to 120 chars)
+    r'(?P<open>\{\{|\[\[)'
     r'(?:\s|<[^>]*?>)*?'
-    r'(?P<close>\}\}|\]\])',                # }} or ]]
+    r'(?P<label>[^}\]]{1,120}?)'
+    r'(?:\s|<[^>]*?>)*?'
+    r'(?P<close>\}\}|\]\])',
     re.I | re.S
 )
 def _remove_report_number_block_docx(doc: Document, report_number: str):
     if report_number:
-        return
+        return   
     def _norm_txt(s):
         return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
     def _is_report_line_text(t: str) -> bool:
@@ -521,7 +532,7 @@ def click_partners_tab(page, frame):
         except Exception:
             pass
     if not clicked:
-        return False  # nothing to click
+        return False
     grid_sigs = [
         "xpath=//td[starts-with(@id,'GUIDE-PartnersTable-')]",
         "xpath=//td[@aria-label='Partner Function']",
@@ -543,6 +554,8 @@ def get_facility_name_and_address(frame):
         return ""
     name = _cell_text_in_same_row(tr, "Name")
     addr = _cell_text_in_same_row(tr, "Address") or _cell_text_in_same_row(tr, "address_short")
+    if addr:
+        addr = addr.replace(" / ", "\n")
     return f"{name}\n{addr}".strip()
 def _partners_table(frame):
     t = frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-PartnersTable-')]]").first
@@ -649,13 +662,13 @@ _COMPLETE_RX = re.compile(
     re.I,
 )
 _ID_PATTERNS = [
-    r"\b\d{5,}\b",                 # plain long numbers
+    r"\b\d{5,}\b",
     r"\bWI[-_ ]?\d{4,}\b",
     r"\bINV[-_ ]?\d{4,}\b",
     r"\bPA[-_ ]?\d{4,}\b",
     r"\bTXN[-_ ]?\d{4,}\b",
     r"\bAN[-_ ]?\d{4,}\b",
-    r"\b[A-Z]{2,5}[-_ ]?\d{4,}\b", # generic code-12345
+    r"\b[A-Z]{2,5}[-_ ]?\d{4,}\b",
 ]
 def _find_first_match(patterns, s):
     for p in patterns:
@@ -740,9 +753,9 @@ DEFAULT_PA_TEXT = (
 DEFAULT_INV_TEXT = (
     "Medtronic conducted an investigation based upon all received information. "
     "Without a product returned for evaluation a likely cause for the reported "
-    "condition could not be established. Medtronic’s assessment determined that "
+    "condition could not be established. Medtronic's assessment determined that "
     "manufacturing action is not required at this time. To ensure product oversight, "
-    "this complaint report is incorporated into Medtronic’s complaint monitoring and "
+    "this complaint report is incorporated into Medtronic's complaint monitoring and "
     "tracking system. The manufacturing records for each device are thoroughly "
     "reviewed to ensure the product meets its quality specifications. Should new "
     "information become available the file will be re-opened and the investigation "
@@ -750,12 +763,12 @@ DEFAULT_INV_TEXT = (
 )
 INV_ASSESSMENT_TAG = (
     "Medtronic's assessment determined that manufacturing action is not required at this time. "
-    "To ensure product oversight, this complaint report is incorporated into Medtronic’s complaint monitoring and tracking system. "
+    "To ensure product oversight, this complaint report is incorporated into Medtronic's complaint monitoring and tracking system. "
     "Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate."
 )
 def _extract_investigation_body(text: str) -> str:
     if not text:
-        return ""
+        return ""   
     lower = text.lower()
     start_phrase = "based on the evidence"
     idx = lower.find(start_phrase)
@@ -890,6 +903,31 @@ def _safe_td_text(td, preserve=False):
         except Exception:
             raw = ""
     return _normalize_text(raw) if not preserve else _normalize_text_preserve(raw)
+def _header_index_by_name(tbl, header_names):
+    try:
+        hdr_cells = tbl.locator("xpath=.//tr[1]/th|.//tr[1]/td")
+        n = hdr_cells.count()
+        for i in range(n):
+            htxt = clean(hdr_cells.nth(i).inner_text()).lower()
+            if htxt in header_names:
+                return i
+    except Exception:
+        pass
+    return None
+def _cell_text_by_col_index(row, col_idx):
+    if col_idx is None:
+        return ""
+    try:
+        cells = row.locator("xpath=.//td|.//th")
+        if cells.count() > col_idx:
+            c = cells.nth(col_idx)
+            txt = clean(c.inner_text())
+            if not txt:
+                txt = clean(c.get_attribute("title") or c.get_attribute("aria-label") or "")
+            return txt
+    except Exception:
+        pass
+    return ""
 def read_all_products(page, root_frame):
     click_tab_by_text(page, root_frame, "Product Line Items") or \
     click_tab_by_text(page, root_frame, "_ovviewset.do_0002")
@@ -900,6 +938,8 @@ def read_all_products(page, root_frame):
             rows = tbl.locator(
                 "xpath=.//tr[td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]]"
             )
+            sn_col_idx  = _header_index_by_name(tbl, ["s/n", "serial number", "serial no", "sn"])
+            lot_col_idx = _header_index_by_name(tbl, ["lot", "lot number", "lot no"])
             n = rows.count()
             out = []
             for i in range(n):
@@ -935,36 +975,48 @@ def read_all_products(page, root_frame):
                         pid = _get_attr_or_text(a)
                     if not pid:
                         pid = _get_attr_or_text(prod_cell)
+                if pid and pid.strip().lower() == "open input help":
+                    log(f"[PLI] Ignoring 'Open Input Help' as product ID in row {i+1}")
+                    pid = ""
                 if pid and not re.search(r"[A-Za-z]", pid):
+                    log(f"[PLI] Filtering out numeric-only product ID: {pid!r}")
                     pid = ""
                 pdesc = ""
                 if desc_cell.count():
                     a = desc_cell.locator("xpath=.//a").first
                     pdesc = _get_attr_or_text(a) if a.count() else _get_attr_or_text(desc_cell)
                 pcode = pid or extract_product_code(pdesc)
-                sn_candidates = [
-                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN')]",
-                    "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'s/n')]",
-                    "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'serial')]",
-                ]
-                sn_val = ""
-                for sel in sn_candidates:
-                    sn_el = row.locator(sel).first
-                    if sn_el.count():
-                        sn_val = clean(sn_el.inner_text())
-                        if sn_val:
-                            break
-                lot_candidates = [
-                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Lot')]",
-                    "xpath=.//span[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'lot')]",
-                ]
-                lot_val = ""
-                for sel in lot_candidates:
-                    lot_el = row.locator(sel).first
-                    if lot_el.count():
-                        lot_val = clean(lot_el.inner_text())
-                        if lot_val:
-                            break
+                sn_val = _cell_text_by_col_index(row, sn_col_idx)
+                if not sn_val:
+                    sn_candidates = [
+                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN') and not(contains(@id,'SNValid'))]",
+                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SerialNumber')]",
+                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Serial')]",
+                        "xpath=.//td[@headers and contains(translate(@headers,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'serial')]",
+                    ]
+                    for sel in sn_candidates:
+                        sn_el = row.locator(sel).first
+                        if sn_el.count():
+                            sn_val = clean(sn_el.inner_text())
+                            if not sn_val:
+                                sn_val = clean(sn_el.get_attribute("title") or sn_el.get_attribute("aria-label") or "")
+                            if sn_val:
+                                break
+                lot_val = _cell_text_by_col_index(row, lot_col_idx)
+                if not lot_val:
+                    lot_candidates = [
+                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Lot') and not(contains(@id,'LotValid'))]",
+                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-LotNumber')]",
+                        "xpath=.//td[@headers and contains(translate(@headers,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'lot')]",
+                    ]
+                    for sel in lot_candidates:
+                        lot_el = row.locator(sel).first
+                        if lot_el.count():
+                            lot_val = clean(lot_el.inner_text())
+                            if not lot_val:
+                                lot_val = clean(lot_el.get_attribute("title") or lot_el.get_attribute("aria-label") or "")
+                            if lot_val:
+                                break
                 if pid or pdesc or sn_val or lot_val:
                     out.append({
                         "id": pid,
@@ -998,6 +1050,9 @@ def read_all_products(page, root_frame):
             continue
         ordered_link = row.locator("xpath=.//a[contains(@id,'ordered_prod')]").first
         pid = _get_attr_or_text(ordered_link) if ordered_link.count() else ""
+        if pid and pid.strip().lower() == "open input help":
+            log(f"[PLI-btadmini] Ignoring 'Open Input Help' as product ID in row {i+1}")
+            pid = ""
         pdesc = ""
         try:
             if ordered_link.count():
@@ -1026,19 +1081,44 @@ def get_event_date(page):
     click_tab_by_text(page, page.main_frame, "_ovviewset.do_0003")
     fr = find_frame_with(page, "xpath=//td[starts-with(@id,'GUIDE-DatesTable')]")
     if not fr:
+        log("[EventDate] Could not find frame with Dates table")
         return ""
     tbl = _dates_table(fr)
     if not tbl or not tbl.count():
+        log("[EventDate] Dates table not found in frame")
         return ""
-    row = tbl.locator(
-        "xpath=.//tr[td[starts-with(@id,'GUIDE-DatesTable') and contains(@id,'-DateType') and normalize-space(.)='Event Date']]"
-    ).first
-    if not row.count():
-        return ""
+    date_type_variations = [
+        "Event Date",
+        "Event date",
+        "event date",
+        "Date of Event",
+        "Incident Date",
+    ]
+    row = None
+    for date_type in date_type_variations:
+        row = tbl.locator(
+            f"xpath=.//tr[td[starts-with(@id,'GUIDE-DatesTable') and contains(@id,'-DateType') and normalize-space(.)='{date_type}']]"
+        ).first
+        if row.count():
+            log(f"[EventDate] Found row with DateType={date_type!r}")
+            break    
+    if not row or not row.count():
+        log("[EventDate] No row found with Event Date type")
+        row = tbl.locator(
+            "xpath=.//tr[td[starts-with(@id,'GUIDE-DatesTable') and contains(@id,'-DateType') "
+            "and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'event')]]"
+        ).first
+        if not row.count():
+            return ""
     cell = row.locator(
         "xpath=.//td[starts-with(@id,'GUIDE-DatesTable') and contains(@id,'-DateFrom')]"
     ).first
-    return clean(cell.inner_text()) if cell.count() else ""
+    if not cell.count():
+        log("[EventDate] DateFrom cell not found in row")
+        return ""
+    event_date = clean(cell.inner_text())
+    log(f"[EventDate] Extracted event date: {event_date!r}")
+    return event_date
 def _aer_table(frame):
     return frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-AdditionalExternalReferencesTable-')]]").first
 def _aer_row_by_type(tbl, *type_fragments):
@@ -1127,7 +1207,6 @@ def read_external_refs(page, root_frame):
             "number": num,
             "text": txt,
         })
-
     out["external_contacts"] = contacts
     return out
 def _find_latest_text_table(page):
@@ -1612,7 +1691,7 @@ def _assoc_click_filter(fr, label: str) -> bool:
     log(f"[AssocTx] filter button NOT found: {label}")
     return False
 def _hdr_indices_from_any(header_tbl, body_tbl):
-    labels = []  # list of (index, label_text)
+    labels = []
     if header_tbl and header_tbl.count():
         cells = header_tbl.locator("xpath=.//thead//th|.//thead//td|.//tr[1]/*")
         for i in range(cells.count()):
@@ -1670,7 +1749,7 @@ def _scroll_to_load_all_in_div(fr, body_tbl, scroll_div):
         pass
     prev = -1
     stagnant = 0
-    for _ in range(240):  # ~30s worst-case
+    for _ in range(240):
         n = rows.count()
         log(f"[AssocTx] rows visible: {n}")
         if n == prev:
@@ -1698,7 +1777,7 @@ def _scroll_to_load_all_in_div(fr, body_tbl, scroll_div):
         try:
             fr.mouse.wheel(0, 1800)
         except Exception:
-            pass
+            pass        
         fr.wait_for_timeout(140)
 _TRANS_HEADER_RX = re.compile(
     r"(transaction|work\s*item|related|type|category|status|state|number|id|no\b|ref|reference)",
@@ -2625,32 +2704,83 @@ def get_partners_for_ui(frame):
     print(f"[Partners] Partner table rows detected: {n}")
     for i in range(n):
         row = rows.nth(i)
+        pf_text = ""
         pf_cell = row.locator(
             "xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-') "
             "and contains(@id,'-PartnerFunction')]"
         ).first
-        pf_text = clean(pf_cell.inner_text()) if pf_cell.count() else ""
+        if pf_cell.count():
+            span = pf_cell.locator("xpath=.//span").first
+            if span.count():
+                pf_text = clean(span.get_attribute("title") or span.inner_text())
+            else:
+                pf_text = clean(pf_cell.inner_text())
+        if not pf_text and pf_cell.count():
+            pf_text = clean(pf_cell.get_attribute("aria-label") or "")
+        if not pf_text:
+            fallback = row.locator("xpath=.//td[contains(@id,'function')]").first
+            if fallback.count():
+                pf_text = clean(fallback.inner_text())
         name = _cell_text_in_same_row(row, "Name")
         addr = (
             _cell_text_in_same_row(row, "Address")
             or _cell_text_in_same_row(row, "address_short")
         )
+        if addr:
+            addr = addr.replace(" / ", "\n")
         block = "\n".join(x for x in [name, addr] if x).strip()
-        partners.append(
-            {
-                "partner_function": pf_text,
-                "name": name,
-                "address": addr,
-                "display": (
-                    f"{pf_text}: {block}" if block and pf_text else
-                    block or name or pf_text or "(no name)"
-                ),
-            }
-        )
+        partners.append({
+            "partner_function": pf_text or "(unknown)",  # Provide fallback
+            "name": name,
+            "address": addr,
+            "display": (
+                f"{pf_text}: {block}" if block and pf_text else
+                block or name or pf_text or "(no data)"
+            ),
+        })
     print(f"[Partners] partners_for_ui count: {len(partners)}")
     for p in partners:
         print("   -", p["display"].replace("\n", " / "))
     return partners
+def build_recipient_options(values: dict):
+    partners = values.get("_external_contacts") or []
+    name_opts = []
+    seen = set()
+    for p in partners:
+        nm = (p.get("name") or "").strip()
+        if not nm:
+            continue
+        key = nm.lower()
+        if key not in seen:
+            seen.add(key)
+            name_opts.append(nm)
+    addr_opts = []
+    seen = set()
+    for p in partners:
+        addr = (p.get("address") or "").strip()
+        if not addr:
+            continue
+        key = addr.lower()
+        if key not in seen:
+            seen.add(key)
+            addr_opts.append(addr)
+    default_name = (values.get("ir_name") or "").strip()
+    default_addr = ""
+    facility_block = (values.get("ir_with_address") or "").strip()
+    if facility_block:
+        lines = [ln.strip() for ln in facility_block.splitlines() if ln.strip()]
+        if len(lines) >= 2:
+            default_addr = "\n".join(lines[1:]).strip()
+    if default_name and default_name.lower() not in {x.lower() for x in name_opts}:
+        name_opts.insert(0, default_name)
+    if default_addr and default_addr.lower() not in {x.lower() for x in addr_opts}:
+        addr_opts.insert(0, default_addr)
+    return {
+        "name_options": name_opts,
+        "address_options": addr_opts,
+        "default_name": default_name,
+        "default_address": default_addr,
+    }
 def scrape_complaint(complaint_id: str, cfg_path: str):
     cfg_path = Path(cfg_path)
     cfg = yaml.safe_load(cfg_path.read_text())
@@ -2809,6 +2939,11 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                     partners_for_ui = get_partners_for_ui(pframe)
                     if partners_for_ui:
                         values["_external_contacts"] = partners_for_ui
+                        ui_opts = build_recipient_options(values)
+                        values["_ui_name_options"] = ui_opts["name_options"]
+                        values["_ui_addr_options"] = ui_opts["address_options"]
+                        values["_ui_default_name"] = ui_opts["default_name"]
+                        values["_ui_default_addr"] = ui_opts["default_address"]
                     print("[Partners] ir_name =", values.get('ir_name', ''))
                     print("[Partners] ir_with_address =", values.get('ir_with_address', ''))
                     log(f"[Partners] ir_name = {values.get('ir_name','')}")
@@ -3031,8 +3166,8 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             code = (p.get("code") or extract_product_code(p.get("desc",""))).upper()
             values[f"product_id_{idx}"]   = (p.get("id") or code)
             values[f"product_desc_{idx}"] = p.get("desc", "")
-            sn  = (p.get("sn", "") or "").strip()
-            lot = (p.get("lot", "") or "").strip()
+            sn  = _clean_sn(p.get("sn", ""))
+            lot = _clean_lot(p.get("lot", ""))
             values[f"product_sn_{idx}"]  = sn
             values[f"product_lot_{idx}"] = lot
             if sn and lot:
