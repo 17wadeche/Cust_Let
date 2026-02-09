@@ -2716,33 +2716,34 @@ def _get_cell_by_column_index(row_locator, col_index):
         cells = row_locator.locator("xpath=.//td")
         if cells.count() > col_index:
             cell = cells.nth(col_index)
-            return clean(cell.inner_text())
+            txt = clean(cell.inner_text())
+            if txt:
+                return txt
+            txt = clean(cell.get_attribute("title") or cell.get_attribute("aria-label") or "")
+            if txt:
+                return txt
         return ""
-    except Exception:
+    except Exception as e:
+        log(f"[Partners] Error getting cell at index {col_index}: {e}")
         return ""
 def get_partners_for_ui(frame):
     tbl = _partners_table(frame)
     if not tbl:
         print("[Partners] No partners table found for UI.")
         return []
-    pf_col_idx = _get_column_index_by_header_text(
-        frame, tbl, ["Partner Function", "Partner Fct", "Function"]
+    rows = tbl.locator(
+        "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-PartnerFunction')]]"
     )
-    name_col_idx = _get_column_index_by_header_text(
-        frame, tbl, ["Name", "Partner Name"]
-    )
-    addr_col_idx = _get_column_index_by_header_text(
-        frame, tbl, ["Address", "Address Short", "Facility Address"]
-    )
-    rows = tbl.locator("xpath=.//tr[td]")  # All data rows
     partners = []
     n = rows.count()
     print(f"[Partners] Partner table rows detected: {n}")
     for i in range(n):
         row = rows.nth(i)
-        pf_text = _get_cell_by_column_index(row, pf_col_idx)
-        name = _get_cell_by_column_index(row, name_col_idx)
-        addr = _get_cell_by_column_index(row, addr_col_idx)
+        pf_text = _cell_text_in_same_row(row, "PartnerFunction")
+        name = _cell_text_in_same_row(row, "Name")
+        addr = _cell_text_in_same_row(row, "Address")
+        if not addr:
+            addr = _cell_text_in_same_row(row, "address_short")
         if addr:
             addr = addr.replace(" / ", "\n")
         block = "\n".join(x for x in [name, addr] if x).strip()
