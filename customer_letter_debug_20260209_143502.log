@@ -1,0 +1,221 @@
+[2026-02-09 14:35:02] Starting scrape for complaint: 708681305
+[2026-02-09 14:35:02] Log file: customer_letter_debug_20260209_143502.log
+[2026-02-09 14:35:02] Using proactor: IocpProactor
+[2026-02-09 14:35:03] Navigating to CRM: https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/default.htm?
+[2026-02-09 14:35:04] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:04] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:05] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:05] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:05] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:06] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:06] [wait] scanning 2 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:07] [wait] scanning 5 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:08] [wait] scanning 5 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-09 14:35:08] [wait] found xpath=//*[normalize-space(.)='with:']/following::input[1] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTBWaVpOaW1rRkgtR0J2dG81dFROUHhRPT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-09 14:35:08] [search] polling every 2s for search input…
+[2026-02-09 14:35:08] [wait] scanning 5 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", 'css=#C1_W1_V2_C9_W28_V29_C12_W37_V38_launcher\\.do > span > table > tbody > tr > td > span.th-if-wrapper > input', 'xpath=/html/body/form/div[5]/div/table/tbody/tr[1]/td/div/div/div/div/table/tbody/tr/td[1]/div/div/span/table/tbody/tr/td/span[3]/input']
+[2026-02-09 14:35:09] [wait] found xpath=//input[contains(@id,'SearchValue')] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTBWaVpOaW1rRkgtR0J2dG81dFROUHhRPT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-09 14:35:09] [search] Found input via selector: xpath=//input[contains(@id,'SearchValue')] in frame url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTBWaVpOaW1rRkgtR0J2dG81dFROUHhRPT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min name=WorkAreaFrame1
+[2026-02-09 14:35:09] [search] filling complaint id: 708681305
+[2026-02-09 14:35:09] [search] clicking submit
+[2026-02-09 14:35:09] [wait] waiting for results: xpath=//span[contains(@class,'title')][contains(normalize-space(.),'Product Line Items')]
+[2026-02-09 14:35:17] [step 1] Partners tab → IR name & facility
+[2026-02-09 14:35:17] [wait] scanning 5 frames for any of: ["xpath=//a[contains(@class,'ui-tabs-anchor')][normalize-space(.)='Partners']", 'text=Partners', "xpath=//a[@class='ui-tabs-anchor' and contains(@href,'_ovviewset.do_0008')]"]
+[2026-02-09 14:35:17] [wait] found xpath=//a[contains(@class,'ui-tabs-anchor')][normalize-space(.)='Partners'] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTBWaVpOaW1rRkgtR0J2dG81dFROUHhRPT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-09 14:35:17] [wait] scanning 5 frames for any of: ["xpath=//td[starts-with(@id,'GUIDE-PartnersTable-')]", "xpath=//td[@aria-label='Partner Function']", "xpath=//th[normalize-space(.)='Partner Function']"]
+[2026-02-09 14:35:17] [wait] found xpath=//td[starts-with(@id,'GUIDE-PartnersTable-')] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTBWaVpOaW1rRkgtR0J2dG81dFROUHhRPT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-09 14:35:17] [Partners] Partner table rows detected: 10
+[2026-02-09 14:35:17] [Partners] Sample cell IDs from first row: ['GUIDE-PartnersTable-0-PartnerID', 'GUIDE-PartnersTable-0-Address', 'GUIDE-PartnersTable-0-Name', 'GUIDE-PartnersTable-0-MainPartner', 'GUIDE-PartnersTable-0-PartnerFunction']
+[2026-02-09 14:35:17] [Partners] Row 1: pf='BU Responsible', name='MITG', addr='8200 Coral Sea St NE\nMounds View MN 55112-4391'
+[2026-02-09 14:35:18] [Partners] Row 2: pf='External Contact', name='liu Arnelo Qiuping', addr='Karolinska Huddinge\nSE-014186 Stockholm'
+[2026-02-09 14:35:18] [Partners] Row 3: pf='Facility', name='Karolinska Huddinge', addr='SE-Huddinge'
+[2026-02-09 14:35:18] [Partners] Row 4: pf='Follow-up Contact', name='Patrik Olmers', addr='Hemvarnsgatan 9\nSE-17154 Solna'
+[2026-02-09 14:35:18] [Partners] Row 5: pf='Geo Person Responsible', name='UNASSIGNED UNASSIGNED', addr=''
+[2026-02-09 14:35:18] [Partners] Row 6: pf='GEO Responsible', name='Intl. West', addr=''
+[2026-02-09 14:35:18] [Partners] Row 7: pf='GEO Responsible', name='JAPAN', addr='Comodio Shiodome 5F\nTOKYO 105-0021'
+[2026-02-09 14:35:19] [Partners] Row 8: pf='GEO Responsible', name='GreaterChina', addr='Block 11, No. 3000 Long Dong Avenue\n200000 Shanghai'
+[2026-02-09 14:35:19] [Partners] Row 9: pf='Initial Reporter', name='liu Arnelo Qiuping', addr='Karolinska Huddinge\nSE-014186 Stockholm'
+[2026-02-09 14:35:19] [Partners] Row 10: pf='Internal Contact', name='Patrik Olmers', addr='Hemvarnsgatan 9\nSE-17154 Solna'
+[2026-02-09 14:35:19] [Partners] partners_for_ui count: 10
+[2026-02-09 14:35:19] [Partners] ir_name = liu Arnelo Qiuping
+[2026-02-09 14:35:19] [Partners] ir_with_address = Karolinska Huddinge
+SE-Huddinge
+[2026-02-09 14:35:19] [step 2] Additional External References → rb_reference & report_number
+[2026-02-09 14:35:19] [nav] Clicking tab: Additional External References
+[2026-02-09 14:35:19] [AER] rb_reference=, report_number=1360638, external_contacts=0
+[2026-02-09 14:35:19] [step 3] Dates tab → event_date
+[2026-02-09 14:35:19] [nav] Clicking tab: Dates
+[2026-02-09 14:35:20] [EventDate] Found row with DateType='Event Date'
+[2026-02-09 14:35:20] [EventDate] Extracted event date: '2025-11-03'
+[2026-02-09 14:35:20] [Dates] event_date=2025-11-03
+[2026-02-09 14:35:20] [step 4] Product Line Items → all rows
+[2026-02-09 14:35:20] [nav] Clicking tab: Product Line Items
+[2026-02-09 14:35:20] [PLI] Skipping product row 2/2 because Complaint='No'
+[2026-02-09 14:35:20] [PLI] rows detected: 1
+[2026-02-09 14:35:20] [step 5] Text Info → event_description
+[2026-02-09 14:35:20] [nav] Clicking tab: Text Info
+[2026-02-09 14:35:21] [Text] Event description read from TD (no click), length=609
+[2026-02-09 14:35:21] [Text] description length: 588
+[2026-02-09 14:35:21] [step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs
+[2026-02-09 14:35:21] [nav] Clicking tab: Associated Transactions
+[2026-02-09 14:35:31] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Last Updated Date', 'Decision Type ,', 'RR Decision Type ,', 'Report Sub Format ,', 'Follow up Number ,', 'Communication Type ,', 'Method of Communication ,', 'Description ,', 'Product Type ,', 'Task Description ,', 'Rationale ,', '608681305', 'Staging Record', 'GUIDE-AssociatedTransactionsTable-0-LineItem', 'GUIDE-AssociatedTransactionsTable-0-SerialNumberLot', 'GUIDE-AssociatedTransactionsTable-0-Product', 'Promoted to PE', 'Rochelle Nuguid / 1000 Manila', '2025-11-05 09:21:59', 'HC Profess/Facility', 'GUIDE-AssociatedTransactionsTable-0-RRDecisionType', 'GUIDE-AssociatedTransactionsTable-0-ReportSubFormat', 'GUIDE-AssociatedTransactionsTable-0-FollowupNumber', 'GUIDE-AssociatedTransactionsTable-0-CommunicationType', 'GUIDE-AssociatedTransactionsTable-0-MethodofCommunication', 'LF1923 - Component disengaged', 'GUIDE-AssociatedTransactionsTable-0-ProductType', 'GUIDE-AssociatedTransactionsTable-0-TaskDescription', 'GUIDE-AssociatedTransactionsTable-0-Rationale']
+[2026-02-09 14:35:33] [AssocTx] clicking filter via role: Analysis
+[2026-02-09 14:35:40] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Destructive Analysis', 'Analysis Group', 'Status Comments', 'Last Updated Date', '834639662', 'Product Analysis', '10', '51410230X', 'LF1923', 'Complete', 'Tete-kwame Donyo / Lafayette CO 80026', 'Permitted', 'Analysis', 'GUIDE-AssociatedTransactionsTable-0-StatusComments', '2026-02-09 00:47:59']
+[2026-02-09 14:35:41] [AssocTx] rows visible: 2
+[2026-02-09 14:35:41] [AssocTx] rows visible: 2
+[2026-02-09 14:35:41] [AssocTx] rows visible: 2
+[2026-02-09 14:35:41] [AssocTx] rows visible: 2
+[2026-02-09 14:35:42] [AssocTx] rows visible: 2
+[2026-02-09 14:35:42] [AssocTx] rows visible: 2
+[2026-02-09 14:35:42] [AssocTx] rows visible: 2
+[2026-02-09 14:35:42] [AssocTx:Analysis] row 1/2: id=834639662 status='Complete' product='LF1923' code='LF1923'
+[2026-02-09 14:35:43] [AssocTx:Analysis] row 2/2: id=833090827 status='Complete' product='LF1923' code='LF1923'
+[2026-02-09 14:35:49] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Destructive Analysis', 'Analysis Group', 'Status Comments', 'Last Updated Date', '834639662', 'Product Analysis', '10', '51410230X', 'LF1923', 'Complete', 'Tete-kwame Donyo / Lafayette CO 80026', 'Permitted', 'Analysis', 'GUIDE-AssociatedTransactionsTable-0-StatusComments', '2026-02-09 00:47:59']
+[2026-02-09 14:35:49] [AssocTx] clicking filter via role: Investigation
+[2026-02-09 14:35:57] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Investigation Required', 'Reason No Investigation', 'Investigation Rationale', 'Formal Investigation Required', 'Reason No Formal Inv.', 'Formal Investigation Rationale', 'Last Updated Date', '833089090', 'Investigation', '10', '51410230X', 'LF1923', 'Complete', 'Azeez Sharif / 500073 Hyderabad', 'Yes', 'GUIDE-AssociatedTransactionsTable-0-ReasonNoInvestigation', 'GUIDE-AssociatedTransactionsTable-0-InvestigationRationale', 'No', 'Foreseen in risk/included in monitoring', 'GUIDE-AssociatedTransactionsTable-0-FormalInvestigationRationale', '2026-02-09 00:47:59']
+[2026-02-09 14:35:57] [AssocTx] rows visible: 1
+[2026-02-09 14:35:57] [AssocTx] rows visible: 1
+[2026-02-09 14:35:58] [AssocTx] rows visible: 1
+[2026-02-09 14:35:58] [AssocTx] rows visible: 1
+[2026-02-09 14:35:58] [AssocTx] rows visible: 1
+[2026-02-09 14:35:58] [AssocTx] rows visible: 1
+[2026-02-09 14:35:59] [AssocTx] rows visible: 1
+[2026-02-09 14:35:59] [AssocTx:Investigation] row 1/1: id=833089090 status='Complete' product='LF1923' code='LF1923'
+[2026-02-09 14:35:59] [AssocTx] Product Analysis (Complete or fallback): ['834639662', '833090827']
+[2026-02-09 14:35:59] [AssocTx] Investigations (Complete or fallback): ['833089090']
+[2026-02-09 14:35:59] [AssocTx] TX 834639662 → Product LF1923
+[2026-02-09 14:35:59] [AssocTx] TX 833090827 → Product LF1923
+[2026-02-09 14:35:59] [AssocTx] TX 833089090 → Product LF1923
+[2026-02-09 14:35:59] [PA-SUMMARY] Fetching Analysis Summary for PA ID: 834639662
+[2026-02-09 14:36:00] [scope] Popup options: 'SR/PE', 'Activities'
+[2026-02-09 14:36:01] [scope] selected via popup: 'activities'
+[2026-02-09 14:36:03] [bcTitle] No product code found in any frame
+[2026-02-09 14:36:03] [PA-SUMMARY] txid=834639662 → bcTitle product=''
+[2026-02-09 14:36:03] [nav] Clicking tab: Text Info
+[2026-02-09 14:36:09] [Match] txid=834639662 matched via AssocTx grid product='LF1923' → product index 1
+[2026-02-09 14:36:09] [PA-SUMMARY] Fetching Analysis Summary for PA ID: 833090827
+[2026-02-09 14:36:10] [scope] already Activities: 'activities'
+[2026-02-09 14:36:11] [bcTitle] Found product in header: 'LF1923' (title='Product Analysis:834639662,Analysis, SR/PE:0708681305, Product:LF1923, Item:10,LotNo:51410230X')
+[2026-02-09 14:36:11] [PA-SUMMARY] txid=833090827 → bcTitle product='LF1923'
+[2026-02-09 14:36:11] [nav] Clicking tab: Text Info
+[2026-02-09 14:36:17] [Match] txid=833090827 matched via AssocTx grid product='LF1923' → product index 1
+[2026-02-09 14:36:17] [INV-SUMMARY] Fetching Investigation Summary for INV ID: 833089090
+[2026-02-09 14:36:17] [scope] already Activities: 'activities'
+[2026-02-09 14:36:19] [bcTitle] Found product in header: 'LF1923' (title='Product Analysis:833090827,Clinical Data Review, SR/PE:0708681305, Product:LF1923, Item:10,LotNo:51410230X')
+[2026-02-09 14:36:19] [INV-SUMMARY] txid=833089090 → bcTitle product='LF1923'
+[2026-02-09 14:36:19] [nav] Clicking tab: Text Info
+[2026-02-09 14:36:25] [Match] txid=833089090 matched via AssocTx grid product='LF1923' → product index 1
+[2026-02-09 14:36:25] Collected fields:
+[2026-02-09 14:36:25] {
+  "todays_date": "February 9, 2026",
+  "complaint_id": "708681305",
+  "ir_with_address": "Karolinska Huddinge\nSE-Huddinge",
+  "report_number": "1360638",
+  "rb_reference": "",
+  "event_date": "2025-11-03",
+  "ir_name": "liu Arnelo Qiuping",
+  "event_description": "during a pancreatic resection (whipple without vessel) procedure involving the LigaSure Vessel Sealing device (JAW OPEN LF1923 LIGASURE MARYLAND 23CM), the device was physically broken or damaged when a piece of metal came loose from the handle. The metal piece was found near the surgical area of the patient. The device was plugged into an FT10 generator at the time of the event. A new handpiece was picked up to complete the procedure. Photos were submitted showing metal piece detached from the handpiece. No x-ray or any medical intervention was needed. There was no patient injury.",
+  "analysis_results": "JAW OPEN LF1923 LIGASURE MARYLAND 23CM was received for evaluation. Examination of the sample is described below.\n\nVisual inspection:\n- The visual inspection found the metal clicker of the device was broken off. The broken piece was returned.\n\nEvaluation:\n- The investigation found the metal clicker on the device was broken and detached from the device.\n- The clicker tab failure is due to extensive use of the device. A large number of cycles tend to fatigue the clicker.\n- The device's usage data was reviewed and it was identified the device had 800+ initiated seals.\n\nThe most likely cause was a component failure.\n\nThe failure has been escalated to engineering for further analysis.\n\nJAW OPEN LF1923 LIGASURE MARYLAND 23CM was received for evaluation. Examination of the sample is described below.\n\nThe product sample was not returned to the Returned Product Analysis (RPA) laboratory; however, a picture/video was provided by the customer for analysis.\n\nVisual inspection:\nA visual inspection of the returned photo(s) noted:\n- The picture shows a black piece of metal laying on the body of the device.\n\nEvaluation:\n- Without receiving the device, a detail investigation could not be performed for the reported complaint.\n- The customer is advised to return the device, so a complete evaluation can be performed.\n- If additional information is obtained, or the product is returned, this investigation will be re-opened.\n\nThis complaint will be used for tracking and trending purposes.",
+  "investigation_summary": "The reported condition was confirmed. It was determined that the most likely cause was traced to a component failure. Medtronic's assessment determined that manufacturing action is not required at this time. To ensure product oversight, this complaint report is incorporated into Medtronic's complaint monitoring and tracking system. Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate.",
+  "product_id_1": "LF1923",
+  "product_desc_1": "JAW OPEN LF1923 LIGASURE MARYLAND 23CM",
+  "serial_or_lot_1": "LN: 51410230X",
+  "product_id_2": "",
+  "product_desc_2": "",
+  "serial_or_lot_2": "",
+  "product_id_3": "",
+  "product_desc_3": "",
+  "serial_or_lot_3": "",
+  "_external_contacts": [
+    {
+      "partner_function": "BU Responsible",
+      "name": "MITG",
+      "address": "8200 Coral Sea St NE\nMounds View MN 55112-4391",
+      "display": "BU Responsible: MITG\n8200 Coral Sea St NE\nMounds View MN 55112-4391"
+    },
+    {
+      "partner_function": "External Contact",
+      "name": "liu Arnelo Qiuping",
+      "address": "Karolinska Huddinge\nSE-014186 Stockholm",
+      "display": "External Contact: liu Arnelo Qiuping\nKarolinska Huddinge\nSE-014186 Stockholm"
+    },
+    {
+      "partner_function": "Facility",
+      "name": "Karolinska Huddinge",
+      "address": "SE-Huddinge",
+      "display": "Facility: Karolinska Huddinge\nSE-Huddinge"
+    },
+    {
+      "partner_function": "Follow-up Contact",
+      "name": "Patrik Olmers",
+      "address": "Hemvarnsgatan 9\nSE-17154 Solna",
+      "display": "Follow-up Contact: Patrik Olmers\nHemvarnsgatan 9\nSE-17154 Solna"
+    },
+    {
+      "partner_function": "Geo Person Responsible",
+      "name": "UNASSIGNED UNASSIGNED",
+      "address": "",
+      "display": "Geo Person Responsible: UNASSIGNED UNASSIGNED"
+    },
+    {
+      "partner_function": "GEO Responsible",
+      "name": "Intl. West",
+      "address": "",
+      "display": "GEO Responsible: Intl. West"
+    },
+    {
+      "partner_function": "GEO Responsible",
+      "name": "JAPAN",
+      "address": "Comodio Shiodome 5F\nTOKYO 105-0021",
+      "display": "GEO Responsible: JAPAN\nComodio Shiodome 5F\nTOKYO 105-0021"
+    },
+    {
+      "partner_function": "GEO Responsible",
+      "name": "GreaterChina",
+      "address": "Block 11, No. 3000 Long Dong Avenue\n200000 Shanghai",
+      "display": "GEO Responsible: GreaterChina\nBlock 11, No. 3000 Long Dong Avenue\n200000 Shanghai"
+    },
+    {
+      "partner_function": "Initial Reporter",
+      "name": "liu Arnelo Qiuping",
+      "address": "Karolinska Huddinge\nSE-014186 Stockholm",
+      "display": "Initial Reporter: liu Arnelo Qiuping\nKarolinska Huddinge\nSE-014186 Stockholm"
+    },
+    {
+      "partner_function": "Internal Contact",
+      "name": "Patrik Olmers",
+      "address": "Hemvarnsgatan 9\nSE-17154 Solna",
+      "display": "Internal Contact: Patrik Olmers\nHemvarnsgatan 9\nSE-17154 Solna"
+    }
+  ],
+  "_ui_name_options": [
+    "MITG",
+    "liu Arnelo Qiuping",
+    "Karolinska Huddinge",
+    "Patrik Olmers",
+    "UNASSIGNED UNASSIGNED",
+    "Intl. West",
+    "JAPAN",
+    "GreaterChina"
+  ],
+  "_ui_addr_options": [
+    "8200 Coral Sea St NE\nMounds View MN 55112-4391",
+    "Karolinska Huddinge\nSE-014186 Stockholm",
+    "SE-Huddinge",
+    "Hemvarnsgatan 9\nSE-17154 Solna",
+    "Comodio Shiodome 5F\nTOKYO 105-0021",
+    "Block 11, No. 3000 Long Dong Avenue\n200000 Shanghai"
+  ],
+  "_ui_default_name": "liu Arnelo Qiuping",
+  "_ui_default_addr": "SE-Huddinge",
+  "_aer_external_contacts": [],
+  "analysis_1": "JAW OPEN LF1923 LIGASURE MARYLAND 23CM was received for evaluation. Examination of the sample is described below.\n\nVisual inspection:\n- The visual inspection found the metal clicker of the device was broken off. The broken piece was returned.\n\nEvaluation:\n- The investigation found the metal clicker on the device was broken and detached from the device.\n- The clicker tab failure is due to extensive use of the device. A large number of cycles tend to fatigue the clicker.\n- The device's usage data was reviewed and it was identified the device had 800+ initiated seals.\n\nThe most likely cause was a component failure.\n\nThe failure has been escalated to engineering for further analysis.\n\nJAW OPEN LF1923 LIGASURE MARYLAND 23CM was received for evaluation. Examination of the sample is described below.\n\nThe product sample was not returned to the Returned Product Analysis (RPA) laboratory; however, a picture/video was provided by the customer for analysis.\n\nVisual inspection:\nA visual inspection of the returned photo(s) noted:\n- The picture shows a black piece of metal laying on the body of the device.\n\nEvaluation:\n- Without receiving the device, a detail investigation could not be performed for the reported complaint.\n- The customer is advised to return the device, so a complete evaluation can be performed.\n- If additional information is obtained, or the product is returned, this investigation will be re-opened.\n\nThis complaint will be used for tracking and trending purposes.",
+  "investigation_1": "The reported condition was confirmed. It was determined that the most likely cause was traced to a component failure. Medtronic's assessment determined that manufacturing action is not required at this time. To ensure product oversight, this complaint report is incorporated into Medtronic's complaint monitoring and tracking system. Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate.",
+  "product_sn_1": "",
+  "product_lot_1": "51410230X",
+  "serial_or_lot_label_1": "Lot No:",
+  "serial_or_lot_value_1": "51410230X",
+  "assoc_tx_product_analysis_ids": "834639662, 833090827",
+  "assoc_tx_investigation_ids": "833089090",
+  "_product_count": 1
+}

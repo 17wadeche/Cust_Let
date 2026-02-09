@@ -1,4 +1,5 @@
 import os
+import datetime
 import sys
 from pathlib import Path
 def _set_playwright_paths():
@@ -224,6 +225,51 @@ class CustomerLetterApp(tk.Tk):
         self._build_step3_analysis()
         self._build_step4_investigation_per_product()
         self._show_step(self.step1_frame, "Step 1 of 4 · Enter GCH PE Number")
+    def _collect_debug_info(self):
+        from datetime import datetime
+        import json
+        info_lines = [
+            "=== Customer Letter Generator Debug Info ===",
+            f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"PE Number: {self.complaint_var.get()}",
+            "",
+        ]
+        info_lines.append("=== Scraping Log Output ===")
+        info_lines.append("")
+        try:
+            log_files = sorted(Path(".").glob("customer_letter_debug_*.log"), 
+                            key=lambda p: p.stat().st_mtime, 
+                            reverse=True)
+            if log_files:
+                recent_log = log_files[0]
+                info_lines.append(f"Log file: {recent_log.name}")
+                info_lines.append("")
+                with open(recent_log, 'r', encoding='utf-8') as f:
+                    log_content = f.read()
+                    info_lines.append(log_content)
+            else:
+                info_lines.append("No log file found - data may not have been scraped yet")
+        except Exception as e:
+            info_lines.append(f"Error reading log: {e}")
+        info_lines.append("")
+        info_lines.append("=== Values Dictionary ===")
+        info_lines.append(json.dumps(self.values, indent=2))
+        info_lines.append("")
+        info_lines.append("=== Products List ===")
+        info_lines.append(json.dumps(self.products, indent=2))
+        return "\n".join(info_lines)
+    def _copy_debug_to_clipboard(self):
+        try:
+            debug_info = self._collect_debug_info()
+            self.clipboard_clear()
+            self.clipboard_append(debug_info)
+            self.update()  # Ensure clipboard is updated
+            messagebox.showinfo(
+                "Debug Info Copied", 
+                "Debug information has been copied to clipboard.\n\n"
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to copy debug info: {e}")
     def _choose_external_contact_if_needed(self):
         partners = self.values.get("_external_contacts") or []
         if len(partners) <= 1:
@@ -272,7 +318,7 @@ class CustomerLetterApp(tk.Tk):
         )
         ttk.Label(
             f,
-            text="We’ll pull initial reporter data, event description, product info, analyses, and investigations from GCH.",
+            text="We'll pull initial reporter data, event description, product info, analyses, and investigations from GCH.",
             style="CardText.TLabel",
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(5, 15))
         ttk.Label(f, text="PE number:", style="CardText.TLabel").grid(
@@ -344,8 +390,15 @@ class CustomerLetterApp(tk.Tk):
             borderwidth=1,
         )
         self.ir_text_widget.grid(row=2, column=0, sticky="nsew", pady=(5, 10))
+        debug_btn = ttk.Button(
+            f, 
+            text="Copy Debug Info", 
+            style="Ghost.TButton", 
+            command=self._copy_debug_to_clipboard
+        )
+        debug_btn.grid(row=3, column=0, sticky="w", pady=(0, 10))
         btn_frame = ttk.Frame(f, style="Card.TFrame")
-        btn_frame.grid(row=3, column=0, sticky="e")
+        btn_frame.grid(row=4, column=0, sticky="e")
         back_btn = ttk.Button(
             btn_frame,
             text="← Back",

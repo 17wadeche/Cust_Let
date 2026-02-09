@@ -12,6 +12,29 @@ from docx.table import _Cell, Table
 from docx.oxml.ns import qn
 import html
 from xml.sax.saxutils import escape as _xml_escape
+import logging
+from datetime import datetime
+def setup_logging():
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_filename = f"customer_letter_debug_{timestamp}.log"
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    logger.handlers = []
+    file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    console_formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    return log_filename
+def log(msg):
+    logging.info(msg)
+def ts():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
 os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 ENDS_WITH_PRODUCT     = "substring(@id, string-length(@id) - string-length('-Product') + 1) = '-Product'"
 ENDS_WITH_DESCRIPTION = "substring(@id, string-length(@id) - string-length('-Description') + 1) = '-Description'"
@@ -114,10 +137,6 @@ def _update_products_table(doc: Document, products: list):
     for p in products:
         row = tbl.add_row()
         _fill_row(row.cells, p)
-def ts():
-    return time.strftime("%Y-%m-%d %H:%M:%S")
-def log(msg):
-    print(f"[{ts()}] {msg}")
 def find_first_visible_input(page, primary_selector, fallbacks=None, timeout=15000):
     fallbacks = fallbacks or []
     selectors = [primary_selector] + fallbacks
@@ -615,9 +634,88 @@ def _cell_text_in_same_row(tr_loc, col_name):
     td = tr_loc.locator(
         f"xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-{col_name}')]"
     ).first
-    if not td.count():
-        return ""
-    return clean(td.inner_text())
+    if td.count():
+        txt = clean(td.inner_text())
+        if txt:
+            return txt
+        input_el = td.locator("xpath=.//input | .//select | .//textarea").first
+        if input_el.count():
+            try:
+                val = input_el.input_value() if input_el.evaluate("e => e.tagName").lower() == 'input' else input_el.inner_text()
+                if val:
+                    return clean(val)
+            except Exception:
+                pass
+        for attr in ["title", "aria-label", "value", "data-value"]:
+            val = td.get_attribute(attr)
+            if val:
+                txt = clean(val)
+                if txt:
+                    return txt
+    if col_name == "PartnerFunction":
+        for variant in ["PartnerFunction", "Partner_Function", "PartnerFct", "Fct", "Function", "PartnerFunctionCode"]:
+            td = tr_loc.locator(
+                f"xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-{variant}')]"
+            ).first
+            if td.count():
+                txt = clean(td.inner_text())
+                if txt:
+                    return txt
+                input_el = td.locator("xpath=.//input | .//select | .//textarea").first
+                if input_el.count():
+                    try:
+                        tag = input_el.evaluate("e => e.tagName").lower()
+                        if tag == 'select':
+                            selected = input_el.locator("xpath=.//option[@selected] | .//option[1]").first
+                            if selected.count():
+                                return clean(selected.inner_text())
+                        else:
+                            val = input_el.input_value()
+                            if val:
+                                return clean(val)
+                    except Exception:
+                        pass
+                for attr in ["title", "aria-label", "value", "data-value"]:
+                    val = td.get_attribute(attr)
+                    if val:
+                        txt = clean(val)
+                        if txt:
+                            return txt
+    elif col_name == "Name":
+        for variant in ["Name", "PartnerName", "Partner_Name"]:
+            td = tr_loc.locator(
+                f"xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-{variant}')]"
+            ).first
+            if td.count():
+                txt = clean(td.inner_text())
+                if txt:
+                    return txt
+                input_el = td.locator("xpath=.//input | .//textarea").first
+                if input_el.count():
+                    try:
+                        val = input_el.input_value()
+                        if val:
+                            return clean(val)
+                    except Exception:
+                        pass
+    elif col_name == "Address" or col_name == "address_short":
+        for variant in ["Address", "address_short", "Address_Short", "PartnerAddress"]:
+            td = tr_loc.locator(
+                f"xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-{variant}')]"
+            ).first
+            if td.count():
+                txt = clean(td.inner_text())
+                if txt:
+                    return txt
+                textarea = td.locator("xpath=.//textarea | .//input").first
+                if textarea.count():
+                    try:
+                        val = textarea.input_value()
+                        if val:
+                            return clean(val)
+                    except Exception:
+                        pass
+    return ""
 def _debug_list_pf_from_correct_table(frame):
     tbl = _partners_table(frame)
     if not tbl:
@@ -956,7 +1054,24 @@ def read_all_products(page, root_frame):
                         )
                     else:
                         complaint_val = clean(complaint_td.inner_text())
+                    if not complaint_val:
+                        input_el = complaint_td.locator("xpath=.//input | .//select").first
+                        if input_el.count():
+                            try:
+                                tag = input_el.evaluate("e => e.tagName").lower()
+                                if tag == 'select':
+                                    selected = input_el.locator("xpath=.//option[@selected] | .//option[1]").first
+                                    if selected.count():
+                                        complaint_val = clean(selected.inner_text())
+                                else:
+                                    val = input_el.input_value()
+                                    if val:
+                                        complaint_val = clean(val)
+                                log(f"[PLI] Row {i+1}/{n}: Got Complaint value from input element: {complaint_val!r}")
+                            except Exception as e:
+                                log(f"[PLI] Row {i+1}/{n}: Error reading Complaint input: {e}")
                 complaint_norm = (complaint_val or "").strip().lower()
+                log(f"[PLI] Row {i+1}/{n}: Complaint={complaint_val!r} (normalized={complaint_norm!r})")
                 if complaint_norm.startswith("no"):
                     log(f"[PLI] Skipping product row {i+1}/{n} because Complaint={complaint_val!r}")
                     continue
@@ -994,6 +1109,15 @@ def read_all_products(page, root_frame):
                     sn_val = clean(sn_cell.inner_text())
                     if not sn_val:
                         sn_val = clean(sn_cell.get_attribute("title") or sn_cell.get_attribute("aria-label") or "")
+                    if not sn_val:
+                        input_el = sn_cell.locator("xpath=.//input").first
+                        if input_el.count():
+                            try:
+                                val = input_el.input_value()
+                                if val:
+                                    sn_val = clean(val)
+                            except Exception:
+                                pass
                 lot_val = ""
                 lot_cell = row.locator(
                     "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and "
@@ -1004,6 +1128,15 @@ def read_all_products(page, root_frame):
                     lot_val = clean(lot_cell.inner_text())
                     if not lot_val:
                         lot_val = clean(lot_cell.get_attribute("title") or lot_cell.get_attribute("aria-label") or "")
+                    if not lot_val:
+                        input_el = lot_cell.locator("xpath=.//input").first
+                        if input_el.count():
+                            try:
+                                val = input_el.input_value()
+                                if val:
+                                    lot_val = clean(val)
+                            except Exception:
+                                pass
                 if pid or pdesc or sn_val or lot_val:
                     out.append({
                         "id": pid,
@@ -1031,7 +1164,26 @@ def read_all_products(page, root_frame):
             complaint_val = clean(
                 complaint_span.get_attribute("title") or complaint_span.inner_text()
             )
+        if not complaint_val:
+            complaint_input = row.locator(
+                "xpath=.//input[contains(@id,'zcomplaint')] | .//select[contains(@id,'zcomplaint')]"
+            ).first
+            if complaint_input.count():
+                try:
+                    tag = complaint_input.evaluate("e => e.tagName").lower()
+                    if tag == 'select':
+                        selected = complaint_input.locator("xpath=.//option[@selected] | .//option[1]").first
+                        if selected.count():
+                            complaint_val = clean(selected.inner_text())
+                    else:
+                        val = complaint_input.input_value()
+                        if val:
+                            complaint_val = clean(val)
+                    log(f"[PLI-btadmini] Row {i+1}/{n}: Got Complaint from input: {complaint_val!r}")
+                except Exception as e:
+                    log(f"[PLI-btadmini] Row {i+1}/{n}: Error reading Complaint input: {e}")
         complaint_norm = (complaint_val or "").strip().lower()
+        log(f"[PLI-btadmini] Row {i+1}/{n}: Complaint={complaint_val!r} (normalized={complaint_norm!r})")
         if complaint_norm.startswith("no"):
             log(f"[PLI-btadmini] Skipping product row {i+1}/{n} because Complaint={complaint_val!r}")
             continue
@@ -1104,6 +1256,22 @@ def get_event_date(page):
         log("[EventDate] DateFrom cell not found in row")
         return ""
     event_date = clean(cell.inner_text())
+    if not event_date:
+        input_el = cell.locator("xpath=.//input | .//textarea").first
+        if input_el.count():
+            try:
+                val = input_el.input_value()
+                if val:
+                    event_date = clean(val)
+            except Exception:
+                pass
+    if not event_date:
+        for attr in ["title", "aria-label", "value", "data-value"]:
+            val = cell.get_attribute(attr)
+            if val:
+                event_date = clean(val)
+                if event_date:
+                    break
     log(f"[EventDate] Extracted event date: {event_date!r}")
     return event_date
 def _aer_table(frame):
@@ -2713,22 +2881,63 @@ def get_partners_for_ui(frame):
     tbl = _partners_table(frame)
     if not tbl:
         print("[Partners] No partners table found for UI.")
+        log("[Partners] No partners table found for UI.")
         return []
     rows = tbl.locator(
-        "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-PartnerFunction')]]"
+        "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') and (contains(@id,'-PartnerFunction') or contains(@id,'-Function'))]]"
     )
+    if rows.count() == 0:
+        log("[Partners] No rows found with PartnerFunction ID, trying all rows with GUIDE-PartnersTable cells")
+        rows = tbl.locator(
+            "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-')]]"
+        )
     partners = []
     n = rows.count()
     print(f"[Partners] Partner table rows detected: {n}")
+    log(f"[Partners] Partner table rows detected: {n}")
     for i in range(n):
         row = rows.nth(i)
+        if i == 0:
+            cells = row.locator("xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-')]")
+            cell_ids = []
+            for j in range(min(cells.count(), 5)):
+                cell_id = cells.nth(j).get_attribute("id") or ""
+                cell_ids.append(cell_id)
+            log(f"[Partners] Sample cell IDs from first row: {cell_ids}")
         pf_text = _cell_text_in_same_row(row, "PartnerFunction")
         name = _cell_text_in_same_row(row, "Name")
         addr = _cell_text_in_same_row(row, "Address")
         if not addr:
             addr = _cell_text_in_same_row(row, "address_short")
+        if not pf_text:
+            pf_cell = row.locator(
+                "xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-')]" +
+                "[.//select or contains(@id,'Function') or contains(@id,'-Fct')]"
+            ).first
+            if pf_cell.count():
+                select = pf_cell.locator("xpath=.//select").first
+                if select.count():
+                    try:
+                        selected_option = select.locator("xpath=.//option[@selected]").first
+                        if selected_option.count():
+                            pf_text = clean(selected_option.inner_text())
+                        else:
+                            try:
+                                pf_text = clean(select.evaluate("""
+                                    el => {
+                                        const idx = el.selectedIndex;
+                                        return idx >= 0 && el.options[idx] ? el.options[idx].text : '';
+                                    }
+                                """))
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        log(f"[Partners] Error reading select dropdown: {e}")
+                if not pf_text:
+                    pf_text = clean(pf_cell.inner_text())
         if addr:
             addr = addr.replace(" / ", "\n")
+        log(f"[Partners] Row {i+1}: pf={pf_text!r}, name={name!r}, addr={addr!r}")
         block = "\n".join(x for x in [name, addr] if x).strip()
         partners.append({
             "partner_function": pf_text or "(unknown)",
@@ -2740,6 +2949,7 @@ def get_partners_for_ui(frame):
             ),
         })
     print(f"[Partners] partners_for_ui count: {len(partners)}")
+    log(f"[Partners] partners_for_ui count: {len(partners)}")
     for p in partners:
         print("   -", p["display"].replace("\n", " / "))
     return partners
@@ -2783,6 +2993,9 @@ def build_recipient_options(values: dict):
         "default_address": default_addr,
     }
 def scrape_complaint(complaint_id: str, cfg_path: str):
+    log_filename = setup_logging()
+    log(f"Starting scrape for complaint: {complaint_id}")
+    log(f"Log file: {log_filename}")
     cfg_path = Path(cfg_path)
     cfg = yaml.safe_load(cfg_path.read_text())
     template_path = Path(cfg['template_path']).expanduser()
