@@ -100,6 +100,10 @@ class PartnerSelectionDialog(tk.Toplevel):
             x = master.winfo_rootx() + (master.winfo_width() - self.winfo_width()) // 2
             y = master.winfo_rooty() + (master.winfo_height() - self.winfo_height()) // 2
             self.geometry(f"+{x}+{y}")
+        self.lift()
+        self.focus_force()
+        self.attributes('-topmost', True)
+        self.after(100, lambda: self.attributes('-topmost', False))
     def _find_partner_index(self, keywords):
         for i, p in enumerate(self.partners):
             pf = (p.get("partner_function", "") or "").lower()
@@ -281,6 +285,14 @@ class CustomerLetterApp(tk.Tk):
         status = ttk.Label(f, textvariable=self.status_var, style="CardText.TLabel")
         status.grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
         f.grid_columnconfigure(1, weight=1)
+    def _bring_to_front(self):
+        try:
+            self.lift()
+            self.focus_force()
+            self.attributes('-topmost', True)
+            self.after(100, lambda: self.attributes('-topmost', False))
+        except Exception:
+            pass
     def on_go_clicked(self):
         complaint_id = self.complaint_var.get().strip()
         if not complaint_id:
@@ -308,6 +320,7 @@ class CustomerLetterApp(tk.Tk):
         self.ir_text_widget.delete("1.0", "end")
         self.ir_text_widget.insert("1.0", ir_text)
         self.status_var.set("")
+        self._bring_to_front()
         self._show_step(self.step2_frame, "Step 2 of 4 · Edit Initial Reporter / Address")
     def _build_step2(self):
         f = self.step2_frame

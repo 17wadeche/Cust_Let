@@ -938,12 +938,6 @@ def read_all_products(page, root_frame):
             rows = tbl.locator(
                 "xpath=.//tr[td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]]"
             )
-            sn_col_idx = _get_column_index_by_header_text(
-                fr, tbl, ["S/N", "Serial Number", "Serial No", "SN", "Serial"]
-            )
-            lot_col_idx = _get_column_index_by_header_text(
-                fr, tbl, ["Lot", "Lot Number", "Lot No", "LN"]
-            )
             n = rows.count()
             out = []
             for i in range(n):
@@ -990,37 +984,26 @@ def read_all_products(page, root_frame):
                     a = desc_cell.locator("xpath=.//a").first
                     pdesc = _get_attr_or_text(a) if a.count() else _get_attr_or_text(desc_cell)
                 pcode = pid or extract_product_code(pdesc)
-                sn_val = _cell_text_by_col_index(row, sn_col_idx)
-                if not sn_val:
-                    sn_candidates = [
-                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SN') and not(contains(@id,'SNValid'))]",
-                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-SerialNumber')]",
-                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Serial')]",
-                        "xpath=.//td[@headers and contains(translate(@headers,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'serial')]",
-                    ]
-                    for sel in sn_candidates:
-                        sn_el = row.locator(sel).first
-                        if sn_el.count():
-                            sn_val = clean(sn_el.inner_text())
-                            if not sn_val:
-                                sn_val = clean(sn_el.get_attribute("title") or sn_el.get_attribute("aria-label") or "")
-                            if sn_val:
-                                break
-                lot_val = _cell_text_by_col_index(row, lot_col_idx)
-                if not lot_val:
-                    lot_candidates = [
-                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Lot') and not(contains(@id,'LotValid'))]",
-                        "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-LotNumber')]",
-                        "xpath=.//td[@headers and contains(translate(@headers,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'lot')]",
-                    ]
-                    for sel in lot_candidates:
-                        lot_el = row.locator(sel).first
-                        if lot_el.count():
-                            lot_val = clean(lot_el.inner_text())
-                            if not lot_val:
-                                lot_val = clean(lot_el.get_attribute("title") or lot_el.get_attribute("aria-label") or "")
-                            if lot_val:
-                                break
+                sn_val = ""
+                sn_cell = row.locator(
+                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and "
+                    "(contains(@id,'-SN') or contains(@id,'-SerialNumber') or contains(@id,'-Serial')) "
+                    "and not(contains(@id,'SNValid'))]"
+                ).first
+                if sn_cell.count():
+                    sn_val = clean(sn_cell.inner_text())
+                    if not sn_val:
+                        sn_val = clean(sn_cell.get_attribute("title") or sn_cell.get_attribute("aria-label") or "")
+                lot_val = ""
+                lot_cell = row.locator(
+                    "xpath=.//td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and "
+                    "(contains(@id,'-Lot') or contains(@id,'-LotNumber')) "
+                    "and not(contains(@id,'LotValid'))]"
+                ).first
+                if lot_cell.count():
+                    lot_val = clean(lot_cell.inner_text())
+                    if not lot_val:
+                        lot_val = clean(lot_cell.get_attribute("title") or lot_cell.get_attribute("aria-label") or "")
                 if pid or pdesc or sn_val or lot_val:
                     out.append({
                         "id": pid,
