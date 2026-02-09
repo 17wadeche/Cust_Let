@@ -58,7 +58,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="CustomerLetterGeneratorv3",
+    name="CustomerLetterGeneratorv4",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -72,5 +72,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name="CustomerLetterGeneratorv3",
+    name="CustomerLetterGeneratorv4",
 )
