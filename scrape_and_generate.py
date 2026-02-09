@@ -938,8 +938,12 @@ def read_all_products(page, root_frame):
             rows = tbl.locator(
                 "xpath=.//tr[td[starts-with(@id,'GUIDE-ProductLineItemsTable-') and contains(@id,'-Product')]]"
             )
-            sn_col_idx  = _header_index_by_name(tbl, ["s/n", "serial number", "serial no", "sn"])
-            lot_col_idx = _header_index_by_name(tbl, ["lot", "lot number", "lot no"])
+            sn_col_idx = _get_column_index_by_header_text(
+                fr, tbl, ["S/N", "Serial Number", "Serial No", "SN", "Serial"]
+            )
+            lot_col_idx = _get_column_index_by_header_text(
+                fr, tbl, ["Lot", "Lot Number", "Lot No", "LN"]
+            )
             n = rows.count()
             out = []
             for i in range(n):
@@ -2690,47 +2694,60 @@ def _strip_analysis_phrases(text: str) -> str:
     text = re.sub(r'[ \t]{2,}', ' ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
+def _get_column_index_by_header_text(frame, table_locator, header_texts):
+    try:
+        if not table_locator.count():
+            return None
+        headers = table_locator.locator("xpath=.//thead//th | .//tr[1]//th")
+        for i in range(headers.count()):
+            header = headers.nth(i)
+            header_text = clean(header.inner_text())
+            for expected in header_texts:
+                if expected.lower() in header_text.lower():
+                    return i
+        return None
+    except Exception as e:
+        log(f"[Partners] Error finding column: {e}")
+        return None
+def _get_cell_by_column_index(row_locator, col_index):
+    if col_index is None:
+        return ""
+    try:
+        cells = row_locator.locator("xpath=.//td")
+        if cells.count() > col_index:
+            cell = cells.nth(col_index)
+            return clean(cell.inner_text())
+        return ""
+    except Exception:
+        return ""
 def get_partners_for_ui(frame):
     tbl = _partners_table(frame)
     if not tbl:
         print("[Partners] No partners table found for UI.")
         return []
-    rows = tbl.locator(
-        "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') "
-        "and contains(@id,'-PartnerFunction')]]"
+    pf_col_idx = _get_column_index_by_header_text(
+        frame, tbl, ["Partner Function", "Partner Fct", "Function"]
     )
+    name_col_idx = _get_column_index_by_header_text(
+        frame, tbl, ["Name", "Partner Name"]
+    )
+    addr_col_idx = _get_column_index_by_header_text(
+        frame, tbl, ["Address", "Address Short", "Facility Address"]
+    )
+    rows = tbl.locator("xpath=.//tr[td]")  # All data rows
     partners = []
     n = rows.count()
     print(f"[Partners] Partner table rows detected: {n}")
     for i in range(n):
         row = rows.nth(i)
-        pf_text = ""
-        pf_cell = row.locator(
-            "xpath=.//td[starts-with(@id,'GUIDE-PartnersTable-') "
-            "and contains(@id,'-PartnerFunction')]"
-        ).first
-        if pf_cell.count():
-            span = pf_cell.locator("xpath=.//span").first
-            if span.count():
-                pf_text = clean(span.get_attribute("title") or span.inner_text())
-            else:
-                pf_text = clean(pf_cell.inner_text())
-        if not pf_text and pf_cell.count():
-            pf_text = clean(pf_cell.get_attribute("aria-label") or "")
-        if not pf_text:
-            fallback = row.locator("xpath=.//td[contains(@id,'function')]").first
-            if fallback.count():
-                pf_text = clean(fallback.inner_text())
-        name = _cell_text_in_same_row(row, "Name")
-        addr = (
-            _cell_text_in_same_row(row, "Address")
-            or _cell_text_in_same_row(row, "address_short")
-        )
+        pf_text = _get_cell_by_column_index(row, pf_col_idx)
+        name = _get_cell_by_column_index(row, name_col_idx)
+        addr = _get_cell_by_column_index(row, addr_col_idx)
         if addr:
             addr = addr.replace(" / ", "\n")
         block = "\n".join(x for x in [name, addr] if x).strip()
         partners.append({
-            "partner_function": pf_text or "(unknown)",  # Provide fallback
+            "partner_function": pf_text or "(unknown)",
             "name": name,
             "address": addr,
             "display": (

@@ -1,2 +1,0 @@
-[0] name='' url='https://login.microsoftonline.com/d73a39db-6eda-495d-8000-7579f56d68b7/login'
-  candidates(th-sif/id*SearchValue/tempname*search): 0
