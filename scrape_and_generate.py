@@ -1766,32 +1766,24 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         return None
     log("[TextInfo] Found Text cell, attempting extraction methods...")
     try:
-        html_content = td.evaluate("el => el.outerHTML")
-        log(f"[TextInfo] DIAGNOSTIC: Text cell HTML (first 1000 chars):\n{html_content[:1000]}")
-        children = td.evaluate("""
-            el => {
-                const kids = [];
-                for (let i = 0; i < el.children.length; i++) {
-                    const child = el.children[i];
-                    kids.push({
-                        tag: child.tagName,
-                        id: child.id || '',
-                        className: child.className || '',
-                        hasChildren: child.children.length > 0
-                    });
-                }
-                return kids;
-            }
-        """)
-        log(f"[TextInfo] DIAGNOSTIC: Child elements: {children}")
-        is_editable = td.evaluate("el => el.contentEditable")
-        log(f"[TextInfo] DIAGNOSTIC: contentEditable={is_editable}")
-        div_count = td.locator("xpath=.//div").count()
-        log(f"[TextInfo] DIAGNOSTIC: Number of <div> elements: {div_count}")
-        iframe_count = td.locator("xpath=.//iframe").count()
-        log(f"[TextInfo] DIAGNOSTIC: Number of <iframe> elements: {iframe_count}")
+        text_content = td.evaluate("el => el.textContent || ''")
+        inner_text = td.evaluate("el => el.innerText || ''")
+        inner_html = td.evaluate("el => el.innerHTML")
+        log(f"[TextInfo] DIAGNOSTIC: textContent length: {len(text_content)}")
+        log(f"[TextInfo] DIAGNOSTIC: innerText length: {len(inner_text)}")
+        log(f"[TextInfo] DIAGNOSTIC: innerHTML length: {len(inner_html)}")
+        log(f"[TextInfo] DIAGNOSTIC: textContent preview (first 200 chars): {text_content[:200]!r}")
+        log(f"[TextInfo] DIAGNOSTIC: innerHTML preview (first 500 chars): {inner_html[:500]!r}")
+        if text_content and len(text_content.strip()) > 10:
+            log(f"[TextInfo] DIAGNOSTIC: textContent has {len(text_content)} chars, attempting to return it")
+            result = _normalize_text_preserve(text_content) if preserve_format else _normalize_text(text_content)
+            if result and len(result.strip()) > 10:
+                log(f"[TextInfo] ✓ SUCCESS: Got text directly from textContent, length={len(result)}")
+                return result
+        else:
+            log("[TextInfo] DIAGNOSTIC: textContent is empty or too short")
     except Exception as e:
-        log(f"[TextInfo] DIAGNOSTIC: Error dumping HTML: {e}")
+        log(f"[TextInfo] DIAGNOSTIC: Error in diagnostic check: {e}")
     if not preserve_format:
         a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
         if a.count():
@@ -1839,35 +1831,6 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
             log(f"[TextInfo] ERROR reading WYSIWYG: {e}")
     else:
         log("[TextInfo] No WYSIWYG div found")
-    editable_div = td.locator("xpath=.//div[@contenteditable='true']").first
-    if editable_div.count():
-        log("[TextInfo] Found contenteditable div (EDIT MODE)")
-        try:
-            raw = editable_div.evaluate("n => n.textContent || ''")
-            if raw:
-                result = _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
-                log(f"[TextInfo] ✓ SUCCESS: Got text from contenteditable div, length={len(result)}")
-                return result
-            else:
-                log("[TextInfo] contenteditable div textContent was empty")
-        except Exception as e:
-            log(f"[TextInfo] ERROR reading contenteditable div: {e}")
-    else:
-        log("[TextInfo] No contenteditable div found")
-    all_divs = td.locator("xpath=.//div")
-    div_count = all_divs.count()
-    if div_count > 0:
-        log(f"[TextInfo] Found {div_count} div elements, trying each...")
-        for i in range(div_count):
-            div = all_divs.nth(i)
-            try:
-                raw = div.evaluate("n => n.textContent || ''")
-                if raw and len(raw.strip()) > 10:  # Only consider substantial text
-                    result = _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
-                    log(f"[TextInfo] ✓ SUCCESS: Got text from div {i+1}/{div_count}, length={len(result)}")
-                    return result
-            except Exception as e:
-                log(f"[TextInfo] Error reading div {i+1}/{div_count}: {e}")
     log("[TextInfo] Trying broader fallback search in frame...")
     detail_candidates = fr.locator(
         "xpath=("
@@ -1905,7 +1868,6 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
             log("[TextInfo] 'Text' label follower returned empty")
     else:
         log("[TextInfo] No 'Text' label found")
-
     log("[TextInfo] ERROR: All extraction methods failed, returning None")
     return None
 def read_analysis_summary_for_current_pli(page):
