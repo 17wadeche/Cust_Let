@@ -580,32 +580,44 @@ def _partners_table(frame):
     t = frame.locator("xpath=//table[.//td[starts-with(@id,'GUIDE-PartnersTable-')]]").first
     return t if t.count() else None
 def _row_by_pf_in_partners(frame, pf_names):
+    log(f"[Partners] === Starting _row_by_pf_in_partners ===")
+    log(f"[Partners] Looking for Partner Functions: {pf_names}")
     tbl = _partners_table(frame)
     if not tbl:
+        log("[Partners] ERROR: Partners table not found")
         return None
+    log("[Partners] Found Partners table")
     if isinstance(pf_names, str):
         pf_names = [pf_names]
-    for pf in pf_names:
-        tr = tbl.locator(
-            "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') and "
-            "contains(@id,'-PartnerFunction') and normalize-space(.)=$pf]]"
-        ).filter(has_text=pf).first
-        if tr.count():
-            return tr
-        tr = tbl.locator(
-            f"xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-PartnerFunction') "
-            f"and normalize-space(.)='{pf}']]"
-        ).first
-        if tr.count():
-            return tr
-    for pf in pf_names:
-        low = pf.lower()
-        tr = tbl.locator(
-            "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-PartnerFunction') "
-            f"and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
-        ).first
-        if tr.count():
-            return tr
+    log("[Partners] EDIT MODE: Getting all rows with PartnerFunction cells")
+    rows = tbl.locator(
+        "xpath=.//tr[td[starts-with(@id,'GUIDE-PartnersTable-') and contains(@id,'-PartnerFunction')]]"
+    )
+    row_count = rows.count()
+    log(f"[Partners] EDIT MODE: Found {row_count} rows with PartnerFunction cells")
+    for i in range(row_count):
+        log(f"[Partners] EDIT MODE: Examining row {i+1}/{row_count}")
+        row = rows.nth(i)
+        pf_value = _cell_text_in_same_row(row, "PartnerFunction")
+        if not pf_value:
+            log(f"[Partners] EDIT MODE: Row {i+1} - No PartnerFunction value found (skipping)")
+            continue
+        log(f"[Partners] EDIT MODE: Row {i+1} - Partner Function value: {pf_value!r}")
+        pf_lower = pf_value.strip().lower()
+        matched = False
+        for want in pf_names:
+            want_lower = want.strip().lower()
+            if pf_lower == want_lower:
+                log(f"[Partners] EDIT MODE: Row {i+1} - ✓ EXACT MATCH with {want!r}")
+                matched = True
+                return row
+            if want_lower in pf_lower:
+                log(f"[Partners] EDIT MODE: Row {i+1} - ✓ PARTIAL MATCH with {want!r} (in {pf_value!r})")
+                matched = True
+                return row
+        if not matched:
+            log(f"[Partners] EDIT MODE: Row {i+1} - No match")
+    log("[Partners] ERROR: No matching row found")
     return None
 def find_partners_frame(page, timeout_ms=10000, poll_ms=200):
     import time
@@ -1643,18 +1655,93 @@ def _find_latest_analysis_table_nearby(page):
             pass
     return candidates[-1] if candidates else (None, None)
 def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
+    log(f"[TextInfo] === Starting read_text_by_labels ===")
+    log(f"[TextInfo] Wanted labels: {wanted_labels}")
+    log(f"[TextInfo] Preserve format: {preserve_format}")
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
+        log("[TextInfo] ERROR: No TextInfo table found")
         return None
+    log(f"[TextInfo] Found TextInfo table in frame: {getattr(fr, 'name', '')} url={getattr(fr, 'url', '')[:100]}")
     row = None
-    for t in wanted_labels:
-        cand = tbl.locator(
-            "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') "
-            "and contains(@id,'-TextType') and normalize-space(.)=$t]]"
-        ).filter(has_text=t).first
-        if cand.count():
-            row = cand; break
+    log("[TextInfo] EDIT MODE: Starting row iteration to find matching TextType")
+    all_rows = tbl.locator(
+        "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]]"
+    )
+    row_count = all_rows.count()
+    log(f"[TextInfo] EDIT MODE: Found {row_count} rows with TextType cells")
+    for i in range(row_count):
+        log(f"[TextInfo] EDIT MODE: Examining row {i+1}/{row_count}")
+        candidate_row = all_rows.nth(i)
+        type_td = candidate_row.locator(
+            "xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]"
+        ).first
+        if not type_td.count():
+            log(f"[TextInfo] EDIT MODE: Row {i+1} - No TextType cell found (skipping)")
+            continue
+        type_value = ""
+        select = type_td.locator("xpath=.//select").first
+        if select.count():
+            log(f"[TextInfo] EDIT MODE: Row {i+1} - Found <select> element (EDIT MODE DETECTED)")
+            try:
+                selected = select.locator("xpath=.//option[@selected]").first
+                if selected.count():
+                    type_value = clean(selected.inner_text())
+                    log(f"[TextInfo] EDIT MODE: Row {i+1} - Got value from @selected option: {type_value!r}")
+                else:
+                    type_value = clean(select.evaluate("""
+                        el => {
+                            const idx = el.selectedIndex;
+                            return idx >= 0 && el.options[idx] ? el.options[idx].text : '';
+                        }
+                    """))
+                    log(f"[TextInfo] EDIT MODE: Row {i+1} - Got value from selectedIndex: {type_value!r}")
+            except Exception as e:
+                log(f"[TextInfo] EDIT MODE: Row {i+1} - ERROR reading select: {e}")
+        else:
+            log(f"[TextInfo] EDIT MODE: Row {i+1} - No <select> element found (read-only mode)")
+        if not type_value:
+            type_value = clean(type_td.inner_text())
+            log(f"[TextInfo] EDIT MODE: Row {i+1} - Got value from inner_text: {type_value!r}")
+        if not type_value:
+            log(f"[TextInfo] EDIT MODE: Row {i+1} - No TextType value found (skipping)")
+            continue
+        type_lower = type_value.strip().lower()
+        log(f"[TextInfo] EDIT MODE: Row {i+1} - Comparing {type_lower!r} against wanted labels")
+        matched = False
+        for label in wanted_labels:
+            label_lower = label.strip().lower()
+            if type_lower == label_lower:
+                log(f"[TextInfo] EDIT MODE: Row {i+1} - ✓ EXACT MATCH with {label!r}")
+                row = candidate_row
+                matched = True
+                break
+            elif label_lower in type_lower:
+                log(f"[TextInfo] EDIT MODE: Row {i+1} - ✓ PARTIAL MATCH with {label!r}")
+                row = candidate_row
+                matched = True
+                break
+        if not matched:
+            log(f"[TextInfo] EDIT MODE: Row {i+1} - No match")
+        if row:
+            break
+    if row:
+        log("[TextInfo] EDIT MODE: Successfully found row via iteration")
+    else:
+        log("[TextInfo] EDIT MODE: No row found via iteration, falling back to XPath text matching")
     if not row:
+        log("[TextInfo] READ-ONLY MODE: Trying XPath exact text matching")
+        for t in wanted_labels:
+            cand = tbl.locator(
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') "
+                "and contains(@id,'-TextType') and normalize-space(.)=$t]]"
+            ).filter(has_text=t).first
+            if cand.count():
+                log(f"[TextInfo] READ-ONLY MODE: Found row with exact text match for {t!r}")
+                row = cand
+                break
+    if not row:
+        log("[TextInfo] READ-ONLY MODE: Trying XPath case-insensitive text matching")
         for t in wanted_labels:
             low = t.lower()
             cand = tbl.locator(
@@ -1663,43 +1750,69 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
                 f"contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
             ).first
             if cand.count():
-                row = cand; break
+                log(f"[TextInfo] READ-ONLY MODE: Found row with case-insensitive match for {t!r}")
+                row = cand
+                break
     if not row:
+        log("[TextInfo] ERROR: No row found with any method")
         return None
+    log("[TextInfo] Row found! Extracting text content...")
     td = row.locator(
         "xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') "
         "and contains(@id,'-Text') and not(contains(@id,'-TextType'))]"
     ).first
-    if td.count():
-        if not preserve_format:
-            a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
-            if a.count():
-                full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
-                if full:
-                    return _normalize_text(full)
-        txt = _safe_td_text(td, preserve=preserve_format)
-        if txt:
-            return txt
-        input_el = td.locator("xpath=.//textarea | .//input").first
-        if input_el.count():
-            try:
-                val = input_el.input_value()
-                if val:
-                    result = _normalize_text_preserve(val) if preserve_format else _normalize_text(val)
-                    log(f"[TextInfo] Got text from input element, length={len(result)}")
-                    return result
-            except Exception as e:
-                log(f"[TextInfo] Error reading input element: {e}")
-        wysiwyg = td.locator("xpath=.//div[contains(@class,'th-wysi') or contains(@class,'th-txt')]").first
-        if wysiwyg.count():
-            try:
-                raw = wysiwyg.evaluate("n => n.textContent || ''")
-                if raw:
-                    result = _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
-                    log(f"[TextInfo] Got text from WYSIWYG div, length={len(result)}")
-                    return result
-            except Exception as e:
-                log(f"[TextInfo] Error reading WYSIWYG: {e}")
+    if not td.count():
+        log("[TextInfo] ERROR: No Text cell found in row")
+        return None
+    log("[TextInfo] Found Text cell, attempting extraction methods...")
+    if not preserve_format:
+        a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
+        if a.count():
+            full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
+            if full:
+                log(f"[TextInfo] ✓ SUCCESS: Got text from <a> aria-label/title, length={len(full)}")
+                return _normalize_text(full)
+            else:
+                log("[TextInfo] Found <a> element but title/aria-label was empty")
+        else:
+            log("[TextInfo] No <a> element with text_table/lines found")
+    txt = _safe_td_text(td, preserve=preserve_format)
+    if txt:
+        log(f"[TextInfo] ✓ SUCCESS: Got text from _safe_td_text, length={len(txt)}")
+        return txt
+    else:
+        log("[TextInfo] _safe_td_text returned empty")
+    input_el = td.locator("xpath=.//textarea | .//input").first
+    if input_el.count():
+        log("[TextInfo] Found textarea/input element (EDIT MODE)")
+        try:
+            val = input_el.input_value()
+            if val:
+                result = _normalize_text_preserve(val) if preserve_format else _normalize_text(val)
+                log(f"[TextInfo] ✓ SUCCESS: Got text from input element, length={len(result)}")
+                return result
+            else:
+                log("[TextInfo] input_value() returned empty")
+        except Exception as e:
+            log(f"[TextInfo] ERROR reading input element: {e}")
+    else:
+        log("[TextInfo] No textarea/input element found")
+    wysiwyg = td.locator("xpath=.//div[contains(@class,'th-wysi') or contains(@class,'th-txt')]").first
+    if wysiwyg.count():
+        log("[TextInfo] Found WYSIWYG div (EDIT MODE)")
+        try:
+            raw = wysiwyg.evaluate("n => n.textContent || ''")
+            if raw:
+                result = _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
+                log(f"[TextInfo] ✓ SUCCESS: Got text from WYSIWYG div, length={len(result)}")
+                return result
+            else:
+                log("[TextInfo] WYSIWYG textContent was empty")
+        except Exception as e:
+            log(f"[TextInfo] ERROR reading WYSIWYG: {e}")
+    else:
+        log("[TextInfo] No WYSIWYG div found")
+    log("[TextInfo] Trying broader fallback search in frame...")
     detail_candidates = fr.locator(
         "xpath=("
         "//textarea[contains(@id,'-Text') and (@readonly or @disabled)] | "
@@ -1709,22 +1822,39 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         ")"
     )
     if detail_candidates.count():
+        log(f"[TextInfo] Found {detail_candidates.count()} fallback candidates")
         try:
             raw = detail_candidates.first.inner_text()
         except Exception:
             raw = detail_candidates.first.evaluate("n => n.textContent || ''")
-        return _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
+        if raw:
+            log(f"[TextInfo] ✓ SUCCESS: Got text from fallback search, length={len(raw)}")
+            return _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
+        else:
+            log("[TextInfo] Fallback candidates returned empty text")
+    else:
+        log("[TextInfo] No fallback candidates found")
+    log("[TextInfo] Trying last resort: looking for 'Text' label...")
     lab = fr.locator("xpath=//*[normalize-space(.)='Text' or contains(normalize-space(.),'Text')]/following::*[1]").first
     if lab.count():
+        log("[TextInfo] Found element following 'Text' label")
         try:
             raw = lab.inner_text()
         except Exception:
             raw = lab.evaluate("n => n.textContent || ''")
-        return _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
+        if raw:
+            log(f"[TextInfo] ✓ SUCCESS: Got text from 'Text' label follower, length={len(raw)}")
+            return _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
+        else:
+            log("[TextInfo] 'Text' label follower returned empty")
+    else:
+        log("[TextInfo] No 'Text' label found")
+    log("[TextInfo] ERROR: All extraction methods failed, returning None")
     return None
 def read_analysis_summary_for_current_pli(page):
     labels = [
         "Analysis Summary",
+        "Product Analysis Summary",
         "Analysis/Investigation Summary",
         "Analysis/Investigation conclusion",
         "Analysis/Investigation",
