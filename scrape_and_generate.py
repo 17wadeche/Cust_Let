@@ -1565,6 +1565,22 @@ def _content_frame(page):
         if (fr.name or "") == "WorkAreaFrame1":
             return fr
     return page.main_frame
+def _remove_product_desc_from_event(event_text: str, products: list) -> str:
+    if not event_text or not products:
+        return event_text
+    text = event_text
+    descriptions_to_remove = []
+    for p in products:
+        desc = (p.get("desc") or "").strip()
+        if desc and len(desc) > 10:  # Only remove substantial descriptions
+            descriptions_to_remove.append(desc)
+    for desc in descriptions_to_remove:
+        escaped_desc = re.escape(desc)
+        pattern = r'\(\s*' + escaped_desc + r'\s*\)'
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s{2,}', ' ', text)
+    text = re.sub(r'\s+([.,;!?])', r'\1', text)  # Remove space before punctuation
+    return text.strip()
 def _ensure_section_expanded(page, section: str):
     fr = _find_leftnav_frame(page)
     if not fr:
@@ -1655,19 +1671,35 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         "and contains(@id,'-Text') and not(contains(@id,'-TextType'))]"
     ).first
     if td.count():
-        if preserve_format:
-            txt = _safe_td_text(td, preserve=True)
-            if txt:
-                return txt
-        else:
+        if not preserve_format:
             a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
             if a.count():
                 full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
                 if full:
                     return _normalize_text(full)
-            txt = _safe_td_text(td, preserve=False)
-            if txt:
-                return txt
+        txt = _safe_td_text(td, preserve=preserve_format)
+        if txt:
+            return txt
+        input_el = td.locator("xpath=.//textarea | .//input").first
+        if input_el.count():
+            try:
+                val = input_el.input_value()
+                if val:
+                    result = _normalize_text_preserve(val) if preserve_format else _normalize_text(val)
+                    log(f"[TextInfo] Got text from input element, length={len(result)}")
+                    return result
+            except Exception as e:
+                log(f"[TextInfo] Error reading input element: {e}")
+        wysiwyg = td.locator("xpath=.//div[contains(@class,'th-wysi') or contains(@class,'th-txt')]").first
+        if wysiwyg.count():
+            try:
+                raw = wysiwyg.evaluate("n => n.textContent || ''")
+                if raw:
+                    result = _normalize_text_preserve(raw) if preserve_format else _normalize_text(raw)
+                    log(f"[TextInfo] Got text from WYSIWYG div, length={len(result)}")
+                    return result
+            except Exception as e:
+                log(f"[TextInfo] Error reading WYSIWYG: {e}")
     detail_candidates = fr.locator(
         "xpath=("
         "//textarea[contains(@id,'-Text') and (@readonly or @disabled)] | "
@@ -3200,6 +3232,7 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             desc = re.sub(r'^\s*according\s+to\s+the\s+reporter[,:-]?\s*', '', desc, flags=re.I)
             desc = re.sub(r'^\s*it\s+was\s+reported(?:\s+that)?[,:-]?\s*', '', desc, flags=re.I).lstrip()
             desc = re.sub(r'([.!?])\1+', r'\1', desc)
+            desc = _remove_product_desc_from_event(desc, products)
             values["event_description"] = desc
         log(f"[Text] description length: {len(values.get('event_description',''))}")
         log("[step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs")
