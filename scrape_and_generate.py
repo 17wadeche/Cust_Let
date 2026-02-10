@@ -1654,6 +1654,61 @@ def _find_latest_analysis_table_nearby(page):
         except Exception:
             pass
     return candidates[-1] if candidates else (None, None)
+def _read_detail_textarea_from_frame(fr, preserve_format=False, timeout_ms=2500):
+    sels = [
+        "css=textarea[id$='_text_lines']",
+        "css=textarea[id*='text_lines']",
+        "xpath=//div[contains(@class,'th-ta-container')]//textarea",
+        "xpath=//textarea[contains(@id,'_text_lines') or contains(@id,'text_lines')]",
+    ]
+    for sel in sels:
+        try:
+            ta = fr.locator(sel).first
+            if ta.count():
+                try:
+                    ta.wait_for(state="visible", timeout=timeout_ms)
+                except Exception:
+                    pass
+                try:
+                    val = ta.input_value()  # best for textarea
+                except Exception:
+                    val = ta.evaluate("n => n.value || n.textContent || ''") or ""
+                val = val.strip()
+                if val:
+                    return _normalize_text_preserve(val) if preserve_format else _normalize_text(val)
+        except Exception:
+            continue
+    return ""
+def xpath_literal(s: str) -> str:
+    if s is None:
+        return "''"
+    if "'" not in s:
+        return f"'{s}'"
+    if '"' not in s:
+        return f'"{s}"'
+    parts = s.split("'")
+    concat_parts = []
+    for i, part in enumerate(parts):
+        if part:
+            concat_parts.append(f"'{part}'")
+        if i < len(parts) - 1:
+            concat_parts.append('"\'"')  # a literal single quote
+    return "concat(" + ", ".join(concat_parts) + ")"
+def _read_textarea_via_label_for(fr, preserve_format=False):
+    lab = fr.locator("xpath=//label[contains(@id,'text_lines') and @for]").first
+    if lab.count():
+        tid = (lab.get_attribute("for") or "").strip()
+        if tid:
+            ta = fr.locator(f"xpath=//textarea[@id={xpath_literal(tid)}]").first
+            if ta.count():
+                try:
+                    val = ta.input_value()
+                except Exception:
+                    val = ta.evaluate("n => n.value || n.textContent || ''") or ""
+                val = (val or "").strip()
+                if val:
+                    return _normalize_text_preserve(val) if preserve_format else _normalize_text(val)
+    return ""
 def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
     log(f"[TextInfo] === Starting read_text_by_labels ===")
     log(f"[TextInfo] Wanted labels: {wanted_labels}")
@@ -1734,8 +1789,8 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         for t in wanted_labels:
             cand = tbl.locator(
                 "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') "
-                "and contains(@id,'-TextType') and normalize-space(.)=$t]]"
-            ).filter(has_text=t).first
+                "and contains(@id,'-TextType') and normalize-space(.)=" + xpath_literal(t) + "]]"
+            ).first
             if cand.count():
                 log(f"[TextInfo] READ-ONLY MODE: Found row with exact text match for {t!r}")
                 row = cand
@@ -1781,6 +1836,27 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         return txt
     else:
         log("[TextInfo] _safe_td_text returned empty")
+    try:
+        log("[TextInfo] Trying click-to-load detail panel textarea fallback...")
+        clicked = robust_click(row, fr) or robust_click(td, fr)
+        if clicked:
+            try:
+                fr.locator("css=textarea[id*='text_lines']").first.wait_for(state="attached", timeout=3000)
+            except Exception:
+                pass
+            fr.wait_for_timeout(150)
+
+            detail = _read_detail_textarea_from_frame(fr, preserve_format=preserve_format, timeout_ms=3000)
+            if not detail:
+                detail = _read_textarea_via_label_for(fr, preserve_format=preserve_format)
+
+            if detail:
+                log(f"[TextInfo] ✓ SUCCESS: Got text from detail panel textarea, length={len(detail)}")
+                return detail
+            else:
+                log("[TextInfo] Detail panel textarea not found / empty after click")
+    except Exception as e:
+        log(f"[TextInfo] Detail panel click-to-load fallback failed: {e}")
     input_el = td.locator("xpath=.//textarea | .//input").first
     if input_el.count():
         log("[TextInfo] Found textarea/input element (EDIT MODE)")
