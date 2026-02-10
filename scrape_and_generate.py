@@ -1765,36 +1765,16 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         log("[TextInfo] ERROR: No Text cell found in row")
         return None
     log("[TextInfo] Found Text cell, attempting extraction methods...")
-    try:
-        text_content = td.evaluate("el => el.textContent || ''")
-        inner_text = td.evaluate("el => el.innerText || ''")
-        inner_html = td.evaluate("el => el.innerHTML")
-        log(f"[TextInfo] DIAGNOSTIC: textContent length: {len(text_content)}")
-        log(f"[TextInfo] DIAGNOSTIC: innerText length: {len(inner_text)}")
-        log(f"[TextInfo] DIAGNOSTIC: innerHTML length: {len(inner_html)}")
-        log(f"[TextInfo] DIAGNOSTIC: textContent preview (first 200 chars): {text_content[:200]!r}")
-        log(f"[TextInfo] DIAGNOSTIC: innerHTML preview (first 500 chars): {inner_html[:500]!r}")
-        if text_content and len(text_content.strip()) > 10:
-            log(f"[TextInfo] DIAGNOSTIC: textContent has {len(text_content)} chars, attempting to return it")
-            result = _normalize_text_preserve(text_content) if preserve_format else _normalize_text(text_content)
-            if result and len(result.strip()) > 10:
-                log(f"[TextInfo] ✓ SUCCESS: Got text directly from textContent, length={len(result)}")
-                return result
+    a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
+    if a.count():
+        full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
+        if full:
+            log(f"[TextInfo] ✓ SUCCESS: Got text from <a> aria-label/title, length={len(full)}")
+            return _normalize_text_preserve(full) if preserve_format else _normalize_text(full)
         else:
-            log("[TextInfo] DIAGNOSTIC: textContent is empty or too short")
-    except Exception as e:
-        log(f"[TextInfo] DIAGNOSTIC: Error in diagnostic check: {e}")
-    if not preserve_format:
-        a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
-        if a.count():
-            full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
-            if full:
-                log(f"[TextInfo] ✓ SUCCESS: Got text from <a> aria-label/title, length={len(full)}")
-                return _normalize_text(full)
-            else:
-                log("[TextInfo] Found <a> element but title/aria-label was empty")
-        else:
-            log("[TextInfo] No <a> element with text_table/lines found")
+            log("[TextInfo] Found <a> element but title/aria-label was empty")
+    else:
+        log("[TextInfo] No <a> element with text_table/lines found")
     txt = _safe_td_text(td, preserve=preserve_format)
     if txt:
         log(f"[TextInfo] ✓ SUCCESS: Got text from _safe_td_text, length={len(txt)}")
