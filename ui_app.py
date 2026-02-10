@@ -30,102 +30,87 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from scrape_and_generate import scrape_complaint, fill_docx
+import re
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 BG_LIGHT = "#f3f4f6"
 CARD_BG = "#ffffff"
 TEXT_DARK = "#111827"
 TEXT_MUTED = "#6b7280"
 ACCENT = "#2563eb"
-class PartnerSelectionDialog(tk.Toplevel):
-    def __init__(self, master, partners):
-        super().__init__(master)
-        self.title("Select Letter Recipients")
-        self.resizable(False, False)
-        self.configure(bg=BG_LIGHT)
-        self.partners = partners
-        self.result_name_index = None
-        self.result_address_index = None
-        self.name_var = tk.StringVar()
-        self.address_var = tk.StringVar()
-        self.transient(master)
-        self.grab_set()
-        ttk.Label(
-            self,
-            text="Multiple partners found. Please select which to use for the letter.",
-            style="CardText.TLabel",
-        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=20, pady=(20, 10))
-        ttk.Label(self, text="Select Name:", style="CardText.TLabel").grid(
-            row=1, column=0, sticky="w", padx=20, pady=(10, 5)
-        )
-        self.name_combo = ttk.Combobox(
-            self, textvariable=self.name_var, state="readonly", width=95
-        )
-        self.name_combo.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
-        ttk.Label(self, text="Select Address:", style="CardText.TLabel").grid(
-            row=3, column=0, sticky="w", padx=20, pady=(10, 5)
-        )
-        self.address_combo = ttk.Combobox(
-            self, textvariable=self.address_var, state="readonly", width=95
-        )
-        self.address_combo.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="ew")
-        self.name_options = []
-        self.address_options = []
-        for c in partners:
-            pf = c.get("partner_function", "")
-            name = c.get("name", "")
-            addr = c.get("address", "").replace("\n", " / ")
-            name_display = f"{pf}: {name}" if name else f"{pf}: (no name)"
-            addr_display = f"{pf}: {addr}" if addr else f"{pf}: (no address)"
-            self.name_options.append(name_display)
-            self.address_options.append(addr_display)
-        self.name_combo["values"] = self.name_options
-        self.address_combo["values"] = self.address_options
-        default_name_idx = self._find_partner_index(["Initial Reporter", "Initial Contact"])
-        default_addr_idx = self._find_partner_index(["Facility", "Health Care Facility", "Healthcare Facility"])
-        if partners:
-            self.name_combo.current(default_name_idx if default_name_idx is not None else 0)
-            self.address_combo.current(default_addr_idx if default_addr_idx is not None else 0)
-        btn_frame = ttk.Frame(self, style="Main.TFrame")
-        btn_frame.grid(row=5, column=0, sticky="e", padx=20, pady=(0, 20))
-        ttk.Button(btn_frame, text="Use Selected", style="Accent.TButton", command=self._on_ok).grid(
-            row=0, column=0, padx=5
-        )
-        ttk.Button(btn_frame, text="Cancel", style="Ghost.TButton", command=self._on_cancel).grid(
-            row=0, column=1, padx=5
-        )
-        self.bind("<Return>", lambda e: self._on_ok())
-        self.bind("<Escape>", lambda e: self._on_cancel())
-        self.columnconfigure(0, weight=1)
-        self.update_idletasks()
-        if master is not None:
-            x = master.winfo_rootx() + (master.winfo_width() - self.winfo_width()) // 2
-            y = master.winfo_rooty() + (master.winfo_height() - self.winfo_height()) // 2
-            self.geometry(f"+{x}+{y}")
-        self.lift()
-        self.focus_force()
-        self.attributes('-topmost', True)
-        self.after(100, lambda: self.attributes('-topmost', False))
-    def _find_partner_index(self, keywords):
-        for i, p in enumerate(self.partners):
-            pf = (p.get("partner_function", "") or "").lower()
-            for kw in keywords:
-                if kw.lower() in pf:
-                    return i
-        return None
-    def _on_ok(self):
-        try:
-            name_idx = self.name_combo.current()
-            addr_idx = self.address_combo.current()
-            self.result_name_index = name_idx if name_idx >= 0 else None
-            self.result_address_index = addr_idx if addr_idx >= 0 else None
-        except Exception:
-            self.result_name_index = None
-            self.result_address_index = None
-        self.destroy()
-    def _on_cancel(self):
-        self.result_name_index = None
-        self.result_address_index = None
-        self.destroy()
+def extract_country_from_address(address: str) -> str:
+    if not address:
+        return "USA"
+    address_upper = address.upper()
+    countries = {
+        "USA": ["USA", "U.S.A", "U.S.A.", "UNITED STATES"],
+        "Canada": ["CANADA"],
+        "UK": ["UK", "U.K.", "UNITED KINGDOM", "ENGLAND", "SCOTLAND", "WALES"],
+        "Germany": ["GERMANY", "DEUTSCHLAND"],
+        "France": ["FRANCE"],
+        "Italy": ["ITALY", "ITALIA"],
+        "Spain": ["SPAIN", "ESPAÑA"],
+        "Mexico": ["MEXICO", "MÉXICO"],
+        "Australia": ["AUSTRALIA"],
+        "Japan": ["JAPAN"],
+        "China": ["CHINA", "PRC"],
+    }
+    for country, indicators in countries.items():
+        for indicator in indicators:
+            if indicator in address_upper:
+                return country
+    return "USA"
+def parse_ir_address_block(ir_block: str) -> dict:
+    if not ir_block:
+        return {
+            "ir_name": "",
+            "facility_name": "",
+            "facility_address": "",
+            "country": "USA"
+        }
+    lines = [line.strip() for line in ir_block.strip().split('\n') if line.strip()]
+    if len(lines) == 0:
+        return {
+            "ir_name": "",
+            "facility_name": "",
+            "facility_address": "",
+            "country": "USA"
+        }
+    elif len(lines) == 1:
+        return {
+            "ir_name": lines[0],
+            "facility_name": "",
+            "facility_address": "",
+            "country": "USA"
+        }
+    elif len(lines) == 2:
+        return {
+            "ir_name": lines[0],
+            "facility_name": lines[1],
+            "facility_address": "",
+            "country": extract_country_from_address(lines[1])
+        }
+    else:
+        ir_name = lines[0]
+        facility_name = lines[1]
+        facility_address = "\n".join(lines[2:])
+        country = extract_country_from_address(facility_address)
+        return {
+            "ir_name": ir_name,
+            "facility_name": facility_name,
+            "facility_address": facility_address,
+            "country": country
+        }
+def build_ir_address_block(ir_name: str, facility_name: str, facility_address: str, country: str) -> str:
+    parts = []
+    if ir_name.strip():
+        parts.append(ir_name.strip())
+    if facility_name.strip():
+        parts.append(facility_name.strip())
+    if facility_address.strip():
+        parts.append(facility_address.strip())
+    if country.strip():
+        parts.append(country.strip())
+    return "\n".join(parts)
 class CustomerLetterApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -270,47 +255,6 @@ class CustomerLetterApp(tk.Tk):
             )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to copy debug info: {e}")
-    def _choose_external_contact_if_needed(self):
-        partners = self.values.get("_external_contacts") or []
-        if len(partners) <= 1:
-            if len(partners) == 1:
-                p = partners[0]
-                name = (p.get("name") or "").strip()
-                addr = (p.get("address") or "").strip().replace(" / ", "\n")
-                if name:
-                    self.values["ir_name"] = name
-                if addr:
-                    self.values["ir_with_address"] = f"{name}\n{addr}".strip()
-            return
-        dlg = PartnerSelectionDialog(self, partners)
-        self.wait_window(dlg)
-        if dlg.result_name_index is None and dlg.result_address_index is None:
-            return
-        selected_name = ""
-        selected_addr = ""
-        if dlg.result_name_index is not None and 0 <= dlg.result_name_index < len(partners):
-            name_partner = partners[dlg.result_name_index]
-            selected_name = (name_partner.get("name") or "").strip()
-            if selected_name:
-                self.values["ir_name"] = selected_name
-        if dlg.result_address_index is not None and 0 <= dlg.result_address_index < len(partners):
-            addr_partner = partners[dlg.result_address_index]
-            selected_addr = (addr_partner.get("address") or "").strip().replace(" / ", "\n")
-        if not selected_name:
-            selected_name = (self.values.get("ir_name") or "").strip()
-        if not selected_addr:
-            facility_block = (self.values.get("ir_with_address") or "").strip()
-            lines = [ln.strip() for ln in facility_block.splitlines() if ln.strip()]
-            if len(lines) >= 2:
-                selected_addr = "\n".join(lines[1:]).strip()
-            elif lines:
-                selected_addr = lines[0]
-        if selected_name and selected_addr:
-            self.values["ir_with_address"] = f"{selected_name}\n{selected_addr}"
-        elif selected_name:
-            self.values["ir_with_address"] = selected_name
-        elif selected_addr:
-            self.values["ir_with_address"] = selected_addr
     def _build_step1(self):
         f = self.step1_frame
         ttk.Label(f, text="Enter GCH PE Number", style="CardTitle.TLabel").grid(
@@ -361,27 +305,46 @@ class CustomerLetterApp(tk.Tk):
         self.template_path = template_path
         self.out_dir = out_dir
         self.last_saved_path = None
-        self._choose_external_contact_if_needed()
-        ir_text = self.values.get("ir_with_address", "") or ""
-        self.ir_text_widget.delete("1.0", "end")
-        self.ir_text_widget.insert("1.0", ir_text)
+        ir_block = self.values.get("ir_with_address", "") or ""
+        parsed = parse_ir_address_block(ir_block)
+        self.ir_name_entry.delete(0, tk.END)
+        self.ir_name_entry.insert(0, parsed["ir_name"])
+        self.facility_name_entry.delete(0, tk.END)
+        self.facility_name_entry.insert(0, parsed["facility_name"])
+        self.facility_address_text.delete("1.0", "end")
+        self.facility_address_text.insert("1.0", parsed["facility_address"])
+        self.country_entry.delete(0, tk.END)
+        self.country_entry.insert(0, parsed["country"])
         self.status_var.set("")
         self._bring_to_front()
         self._show_step(self.step2_frame, "Step 2 of 4 · Edit Initial Reporter / Address")
     def _build_step2(self):
         f = self.step2_frame
         ttk.Label(f, text="Initial Reporter & Facility Address", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w"
+            row=0, column=0, columnspan=2, sticky="w"
         )
         ttk.Label(
             f,
-            text="Review and adjust the initial reporter / facility block before it goes into the template.",
+            text="Review and adjust the recipient information. This will appear in the letter heading.",
             style="CardText.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(5, 10))
-        self.ir_text_widget = tk.Text(
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(5, 15))
+        ttk.Label(f, text="Initial Reporter Name:", style="CardText.TLabel").grid(
+            row=2, column=0, sticky="w", pady=(0, 5)
+        )
+        self.ir_name_entry = ttk.Entry(f, width=60)
+        self.ir_name_entry.grid(row=2, column=1, sticky="ew", pady=(0, 5), padx=(10, 0))
+        ttk.Label(f, text="Facility Name:", style="CardText.TLabel").grid(
+            row=3, column=0, sticky="w", pady=(0, 5)
+        )
+        self.facility_name_entry = ttk.Entry(f, width=60)
+        self.facility_name_entry.grid(row=3, column=1, sticky="ew", pady=(0, 5), padx=(10, 0))
+        ttk.Label(f, text="Facility Address:", style="CardText.TLabel").grid(
+            row=4, column=0, sticky="nw", pady=(0, 5)
+        )
+        self.facility_address_text = tk.Text(
             f,
-            width=100,
-            height=10,
+            width=60,
+            height=3,
             wrap="word",
             bg="#ffffff",
             fg=TEXT_DARK,
@@ -389,16 +352,21 @@ class CustomerLetterApp(tk.Tk):
             relief="solid",
             borderwidth=1,
         )
-        self.ir_text_widget.grid(row=2, column=0, sticky="nsew", pady=(5, 10))
+        self.facility_address_text.grid(row=4, column=1, sticky="ew", pady=(0, 5), padx=(10, 0))
+        ttk.Label(f, text="Country:", style="CardText.TLabel").grid(
+            row=5, column=0, sticky="w", pady=(0, 10)
+        )
+        self.country_entry = ttk.Entry(f, width=60)
+        self.country_entry.grid(row=5, column=1, sticky="ew", pady=(0, 10), padx=(10, 0))
         debug_btn = ttk.Button(
             f, 
             text="Copy Debug Info", 
             style="Ghost.TButton", 
             command=self._copy_debug_to_clipboard
         )
-        debug_btn.grid(row=3, column=0, sticky="w", pady=(0, 10))
+        debug_btn.grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 10))
         btn_frame = ttk.Frame(f, style="Card.TFrame")
-        btn_frame.grid(row=4, column=0, sticky="e")
+        btn_frame.grid(row=7, column=0, columnspan=2, sticky="e")
         back_btn = ttk.Button(
             btn_frame,
             text="← Back",
@@ -415,10 +383,15 @@ class CustomerLetterApp(tk.Tk):
             command=self.on_ir_next,
         )
         next_btn.grid(row=0, column=1, padx=5)
-        f.grid_rowconfigure(2, weight=1)
-        f.grid_columnconfigure(0, weight=1)
+        f.grid_columnconfigure(1, weight=1)
     def on_ir_next(self):
-        self.values["ir_with_address"] = self.ir_text_widget.get("1.0", "end-1c")
+        ir_name = self.ir_name_entry.get().strip()
+        facility_name = self.facility_name_entry.get().strip()
+        facility_address = self.facility_address_text.get("1.0", "end-1c").strip()
+        country = self.country_entry.get().strip()
+        self.values["ir_with_address"] = build_ir_address_block(
+            ir_name, facility_name, facility_address, country
+        )
         if not self.products:
             self._show_step(
                 self.step4_frame,
@@ -744,8 +717,10 @@ class CustomerLetterApp(tk.Tk):
         self.current_investigation_idx = 0
         self.complaint_var.set("")
         self.status_var.set("")
-        self.ir_text_widget.config(state="normal")
-        self.ir_text_widget.delete("1.0", "end")
+        self.ir_name_entry.delete(0, tk.END)
+        self.facility_name_entry.delete(0, tk.END)
+        self.facility_address_text.delete("1.0", "end")
+        self.country_entry.delete(0, tk.END)
         self.analysis_text_widget.config(state="normal")
         self.analysis_text_widget.delete("1.0", "end")
         self.inv_pp_text_widget.config(state="normal")
