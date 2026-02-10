@@ -83,12 +83,25 @@ def parse_ir_address_block(ir_block: str) -> dict:
             "country": "USA"
         }
     elif len(lines) == 2:
-        return {
-            "ir_name": lines[0],
-            "facility_name": lines[1],
-            "facility_address": "",
-            "country": extract_country_from_address(lines[1])
-        }
+        line2_lower = lines[1].lower()
+        has_address_markers = any(marker in line2_lower for marker in [
+            'street', 'st ', 'avenue', 'ave ', 'road', 'rd ', 'drive', 
+            'lane', 'blvd', 'plaza', '-', 'se-', 'ne-', 'sw-', 'nw-'
+        ])
+        if has_address_markers or len(lines[1]) > 50:
+            return {
+                "ir_name": lines[0],
+                "facility_name": "",
+                "facility_address": lines[1],
+                "country": extract_country_from_address(lines[1])
+            }
+        else:
+            return {
+                "ir_name": lines[0],
+                "facility_name": lines[1],
+                "facility_address": "",
+                "country": "USA"
+            }
     else:
         ir_name = lines[0]
         facility_name = lines[1]
@@ -306,7 +319,13 @@ class CustomerLetterApp(tk.Tk):
         self.out_dir = out_dir
         self.last_saved_path = None
         ir_block = self.values.get("ir_with_address", "") or ""
+        ir_name_from_values = self.values.get("ir_name", "") or ""
         parsed = parse_ir_address_block(ir_block)
+        if ir_name_from_values:
+            if parsed["ir_name"] and parsed["ir_name"] != ir_name_from_values:
+                if not parsed["facility_name"]:
+                    parsed["facility_name"] = parsed["ir_name"]
+            parsed["ir_name"] = ir_name_from_values
         self.ir_name_entry.delete(0, tk.END)
         self.ir_name_entry.insert(0, parsed["ir_name"])
         self.facility_name_entry.delete(0, tk.END)
