@@ -1,5 +1,7 @@
 dist/
 build/
 __pycache__/
+venv/
 .venv/
 *.zip
+*.pyc
