@@ -1020,36 +1020,41 @@ def _process_picture_pa(text: str) -> str:
         '',
         t
     )
-    t = re.sub(
-        r'(?im)^\s*visual\s+inspection\s*:\s*$',
-        'Picture Evaluation:',
-        t
-    )
+    t = re.sub(r'(?im)^\s*visual\s+inspection\s*:\s*$', 'Picture Evaluation:', t)
     t = re.sub(
         r'(?im)^\s*a\s+visual\s+inspection\s+of\s+the\s+returned\s+photo(?:\(\s*s\s*\)|s)?\s+noted\s*:\s*$',
         'Picture Evaluation:',
         t
     )
-    t = re.sub(
-        r'(?is)\ba\s+visual\s+inspection\s+of\s+the\s+returned\s+photo(?:\(\s*s\s*\)|s)?\s+noted\s*:\s*',
-        'Picture Evaluation:\n',
-        t
-    )
     lines = t.splitlines()
     out = []
-    in_eval = False
-    for line in lines:
-        s = line.strip()
+    i = 0
+    n = len(lines)
+    while i < n:
+        s = lines[i].strip()
+        if re.match(
+            r'(?i)^a\s+visual\s+inspection\s+of\s+the\s+returned\s+photo(?:\(\s*s\s*\)|s)?\s+noted\s*:\s*$',
+            s
+        ):
+            i += 1
+            continue
         if re.match(r'(?i)^evaluation\s*:\s*$', s):
-            in_eval = True
+            i += 1
+            while i < n:
+                s2 = lines[i].strip()
+                if (
+                    s2 == "" or
+                    s2.startswith(BULLET) or
+                    re.match(r'^\-\s+', s2) or
+                    re.match(r'^\*\s+', s2) or
+                    re.match(r'^\d+\.\s+', s2)
+                ):
+                    i += 1
+                    continue
+                break
             continue
-        if in_eval:
-            if (not s) or s.startswith(BULLET) or s.startswith('- '):
-                continue
-            in_eval = False
-            out.append(line)
-            continue
-        out.append(line)
+        out.append(lines[i])
+        i += 1
     t = "\n".join(out)
     t = re.sub(r'[ \t]{2,}', ' ', t)
     t = re.sub(r'\n{3,}', '\n\n', t).strip()

@@ -1,0 +1,4 @@
+[2026-02-12 12:02:21] Starting scrape for complaint: 0708681305
+[2026-02-12 12:02:21] Log file: customer_letter_debug_20260212_120221.log
+[2026-02-12 12:02:21] Using proactor: IocpProactor
+[2026-02-12 12:02:22] Navigating to CRM: https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/default.htm?
