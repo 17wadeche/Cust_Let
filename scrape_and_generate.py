@@ -995,7 +995,7 @@ def _replace_dashes_with_bullets(text: str) -> str:
     if not text:
         return text
     return re.sub(r'^- ', '\u2022 ', text, flags=re.MULTILINE)
-def _format_analysis_block(product_desc: str, summary: str, product_count: int = 1, include_lead: bool = True) -> str:
+def _format_analysis_block(product_desc: str, summary: str, product_count: int = 1, include_lead: bool = True, has_image: bool = False) -> str:
     s = "" if summary is None else _normalize_text_preserve(summary)
     s = _replace_dashes_with_bullets(s)
     if not s.strip() or s.strip() == DEFAULT_PA_TEXT:
@@ -1004,10 +1004,18 @@ def _format_analysis_block(product_desc: str, summary: str, product_count: int =
         return s.lstrip("\n")
     count_word = _number_word(product_count)
     desc = (product_desc or '').strip()
-    if product_count == 1:
-        lead = f"{count_word} {desc} was received for evaluation. Examination of the sample is described below."
+    if has_image:
+        if product_count == 1:
+            lead = (f"{count_word} {desc} and one picture were received for evaluation. "
+                    f"Examination of the sample and picture is provided below.")
+        else:
+            lead = (f"{count_word} {desc} and one picture were received for evaluation. "
+                    f"Examination of the samples and picture is provided below.")
     else:
-        lead = f"{count_word} {desc} were received for evaluation. Examination of the samples is described below."
+        if product_count == 1:
+            lead = f"{count_word} {desc} was received for evaluation. Examination of the sample is described below."
+        else:
+            lead = f"{count_word} {desc} were received for evaluation. Examination of the samples is described below."
     return lead + "\n\n" + s.lstrip("\n")
 def get_current_activity_product_code(page) -> str:
     for fr in page.frames:
@@ -3276,7 +3284,12 @@ def _clean_image_pa_text(text: str) -> str:
         'Picture Evaluation:',
         text, flags=re.IGNORECASE
     )
-    return text.rstrip()
+    text = re.sub(
+        r'\n*A\s+visual\s+inspection\s+of\s+the\s+returned\s+photo\(s\)\s+noted\s*:\s*\n?',
+        '\n', text, flags=re.IGNORECASE
+    )
+    text = re.sub(r'^- ', '\u2022 ', text, flags=re.MULTILINE)
+    return text.strip()
 def get_partners_for_ui(frame):
     tbl = _partners_table(frame)
     if not tbl:
@@ -3744,6 +3757,7 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                         prod_desc, summary,
                         product_count=same_product_count,
                         include_lead=is_first,
+                        has_image=(idx in per_product_pa_image),
                     )
                     prev = per_product_pa.get(idx, "")
                     per_product_pa[idx] = (
@@ -3752,16 +3766,36 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             else:
                 unmatched_pa.append(summary)
                 log(f"[PA-SUMMARY] txid={txid} could not be matched to any included product; analysis ignored.")
+        for idx, img_text in per_product_pa_image.items():
+            if idx in per_product_pa:
+                existing = per_product_pa[idx]
+                existing = re.sub(
+                    r'(\bOne\s+.+?)\s+was\s+received\s+for\s+evaluation\.\s*'
+                    r'Examination\s+of\s+the\s+sample\s+is\s+described\s+below\.',
+                    r'\1 and one picture were received for evaluation. '
+                    r'Examination of the sample and picture is provided below.',
+                    existing, count=1
+                )
+                existing = re.sub(
+                    r'(\b(?:Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|\d+)\s+.+?)\s+were\s+received\s+for\s+evaluation\.\s*'
+                    r'Examination\s+of\s+the\s+samples?\s+is\s+described\s+below\.',
+                    r'\1 and one picture were received for evaluation. '
+                    r'Examination of the samples and picture is provided below.',
+                    existing, count=1
+                )
+                per_product_pa[idx] = existing + "\n\n" + img_text
+            else:
+                prod_desc = ""
+                if 1 <= idx <= len(products):
+                    prod_desc = products[idx - 1].get("desc", "")
+                count_word = _number_word(1)
+                desc = (prod_desc or '').strip()
+                lead = (f"{count_word} {desc} and one picture were received for evaluation. "
+                        f"Examination of the sample and picture is provided below.")
+                per_product_pa[idx] = lead + "\n\n" + img_text
+            log(f"[PA-IMAGE] Product {idx}: appended image PA text into analysis_{idx}")
         for idx, text in per_product_pa.items():
             values[f"analysis_{idx}"] = text
-        for idx, text in per_product_pa_image.items():
-            values[f"analysis_image_{idx}"] = text
-            log(f"[PA-IMAGE] Product {idx} has image PA text "
-                f"(length={len(text)})")
-        values["_pa_image_indices"] = sorted(per_product_pa_image.keys())
-        for idx, text in per_product_pa_image.items():
-            values[f"analysis_image_{idx}"] = text
-            log(f"[PA-IMAGE] Product {idx} has image PA text (length={len(text)})")
         values["_pa_image_indices"] = sorted(per_product_pa_image.keys())
         all_pa_blocks = list(per_product_pa.values())
         if all_pa_blocks:

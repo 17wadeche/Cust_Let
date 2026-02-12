@@ -1,0 +1,5 @@
+[2026-02-12 13:57:21] Starting scrape for complaint: 708681305
+[2026-02-12 13:57:21] Log file: customer_letter_debug_20260212_135721.log
+[2026-02-12 13:57:21] Using proactor: IocpProactor
+[2026-02-12 13:57:22] Navigating to CRM: https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/default.htm?
+[2026-02-12 13:57:23] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
