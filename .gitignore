@@ -5,3 +5,4 @@ venv/
 .venv/
 *.zip
 *.pyc
+out/
