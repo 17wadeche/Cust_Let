@@ -124,6 +124,52 @@ def build_ir_address_block(ir_name: str, facility_name: str, facility_address: s
     if country.strip():
         parts.append(country.strip())
     return "\n".join(parts)
+def _normalize_newlines(text: str) -> str:
+    if not text:
+        return ""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+def _remove_exact_unwanted_line(text: str) -> str:
+    text = _normalize_newlines(text)
+    text = re.sub(
+        r'^[ \t]*The product sample was not returned to the Visual inspection:[ \t]*\n?',
+        '',
+        text,
+        flags=re.MULTILINE
+    )
+    return text
+def _remove_picture_evaluation_bullets_only(text: str) -> str:
+    text = _normalize_newlines(text)
+
+    lines = text.split("\n")
+    out = []
+    i = 0
+    n = len(lines)
+    bullet_re = re.compile(r'^\s*(?:•|-|\*|\u2022)\s+')
+    section_header_re = re.compile(r'^\s*[A-Za-z][^:\n]{0,80}:\s*$')
+    while i < n:
+        line = lines[i]
+        out.append(line)
+        if re.match(r'^\s*Picture Evaluation:\s*$', line, flags=re.IGNORECASE):
+            j = i + 1
+            while j < n and lines[j].strip() == "":
+                j += 1
+            while j < n and bullet_re.match(lines[j]):
+                j += 1
+            while j < n and lines[j].strip() == "":
+                if j + 1 < n and section_header_re.match(lines[j + 1]):
+                    break
+                j += 1
+
+            i = j
+            continue
+        i += 1
+    cleaned = "\n".join(out)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+    return cleaned
+def sanitize_analysis_text(text: str) -> str:
+    text = _remove_exact_unwanted_line(text)
+    text = _remove_picture_evaluation_bullets_only(text)
+    return text
 class CustomerLetterApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -477,6 +523,8 @@ class CustomerLetterApp(tk.Tk):
         self.analysis_product_label.config(text=product_line)
         analysis_key = f"analysis_{product_num}"
         analysis_text = self.values.get(analysis_key, "") or ""
+        analysis_text = sanitize_analysis_text(analysis_text)
+        self.values[analysis_key] = analysis_text
         self.analysis_text_widget.delete("1.0", "end")
         self.analysis_text_widget.insert("1.0", analysis_text)
         if product_num == len(self.products):
@@ -490,6 +538,7 @@ class CustomerLetterApp(tk.Tk):
         product_num = idx + 1
         analysis_key = f"analysis_{product_num}"
         text = self.analysis_text_widget.get("1.0", "end-1c")
+        text = sanitize_analysis_text(text)
         self.values[analysis_key] = text
     def on_analysis_next(self):
         if self.products:
