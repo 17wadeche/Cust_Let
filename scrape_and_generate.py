@@ -1098,31 +1098,6 @@ def _safe_td_text(td, preserve=False):
         except Exception:
             raw = ""
     return _normalize_text(raw) if not preserve else _normalize_text_preserve(raw)
-def _header_index_by_name(tbl, header_names):
-    try:
-        hdr_cells = tbl.locator("xpath=.//tr[1]/th|.//tr[1]/td")
-        n = hdr_cells.count()
-        for i in range(n):
-            htxt = clean(hdr_cells.nth(i).inner_text()).lower()
-            if htxt in header_names:
-                return i
-    except Exception:
-        pass
-    return None
-def _cell_text_by_col_index(row, col_idx):
-    if col_idx is None:
-        return ""
-    try:
-        cells = row.locator("xpath=.//td|.//th")
-        if cells.count() > col_idx:
-            c = cells.nth(col_idx)
-            txt = clean(c.inner_text())
-            if not txt:
-                txt = clean(c.get_attribute("title") or c.get_attribute("aria-label") or "")
-            return txt
-    except Exception:
-        pass
-    return ""
 def read_all_products(page, root_frame):
     click_tab_by_text(page, root_frame, "Product Line Items") or \
     click_tab_by_text(page, root_frame, "_ovviewset.do_0002")
@@ -1930,11 +1905,9 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
             except Exception:
                 pass
             fr.wait_for_timeout(150)
-
             detail = _read_detail_textarea_from_frame(fr, preserve_format=preserve_format, timeout_ms=3000)
             if not detail:
                 detail = _read_textarea_via_label_for(fr, preserve_format=preserve_format)
-
             if detail:
                 log(f"[TextInfo] ✓ SUCCESS: Got text from detail panel textarea, length={len(detail)}")
                 return detail
@@ -2011,7 +1984,7 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         log("[TextInfo] No 'Text' label found")
     log("[TextInfo] ERROR: All extraction methods failed, returning None")
     return None
-def read_text_by_labels_raw(page, wanted_labels):
+def read_text_by_labels_raw(page, wanted_labels, *, preserve_format=False):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
         return None
@@ -2083,15 +2056,43 @@ def read_text_by_labels_raw(page, wanted_labels):
     ).first
     if not td.count():
         return None
+    def _ret(s):
+        if s is None:
+            return None
+        s = str(s)
+        if not s.strip():
+            return None
+        return _normalize_text_preserve(s) if preserve_format else _normalize_text(s)
     a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
     if a.count():
         full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
         if full:
-            return full
+            return _ret(full)
+    txt = _safe_td_text(td, preserve=preserve_format)
+    if txt:
+        return _ret(txt)
+    try:
+        clicked = robust_click(row, fr) or robust_click(td, fr)
+        if clicked:
+            try:
+                fr.locator("css=textarea[id*='text_lines']").first.wait_for(state="attached", timeout=3000)
+            except Exception:
+                pass
+            fr.wait_for_timeout(150)
+
+            detail = _read_detail_textarea_from_frame(
+                fr, preserve_format=preserve_format, timeout_ms=3000
+            )
+            if not detail:
+                detail = _read_textarea_via_label_for(fr, preserve_format=preserve_format)
+            if detail:
+                return _ret(detail)
+    except Exception:
+        pass
     try:
         raw = td.evaluate("n => n.textContent || ''") or ""
         if raw.strip():
-            return raw.strip()
+            return _ret(raw)
     except Exception:
         pass
     input_el = td.locator("xpath=.//textarea | .//input").first
@@ -2099,9 +2100,48 @@ def read_text_by_labels_raw(page, wanted_labels):
         try:
             val = input_el.input_value()
             if val:
-                return val.strip()
+                return _ret(val)
         except Exception:
             pass
+    wysiwyg = td.locator("xpath=.//div[contains(@class,'th-wysi') or contains(@class,'th-txt')]").first
+    if wysiwyg.count():
+        try:
+            raw = wysiwyg.evaluate("n => n.textContent || ''")
+            if raw:
+                return _ret(raw)
+        except Exception:
+            pass
+    try:
+        detail_candidates = fr.locator(
+            "xpath=("
+            "//textarea[contains(@id,'-Text') and (@readonly or @disabled)] | "
+            "//*[@role='textbox' and (not(@contenteditable) or @contenteditable='false')] | "
+            "//div[contains(@class,'th-wysi') or contains(@class,'th-txt')][not(@contenteditable) or @contenteditable='false'] | "
+            "//div[contains(@class,'text-value') or contains(@class,'TextValue')]"
+            ")"
+        )
+        if detail_candidates.count():
+            try:
+                raw = detail_candidates.first.inner_text()
+            except Exception:
+                raw = detail_candidates.first.evaluate("n => n.textContent || ''")
+            if raw:
+                return _ret(raw)
+    except Exception:
+        pass
+    try:
+        lab = fr.locator(
+            "xpath=//*[normalize-space(.)='Text' or contains(normalize-space(.),'Text')]/following::*[1]"
+        ).first
+        if lab.count():
+            try:
+                raw = lab.inner_text()
+            except Exception:
+                raw = lab.evaluate("n => n.textContent || ''")
+            if raw:
+                return _ret(raw)
+    except Exception:
+        pass
     return None
 def read_analysis_raw_text_for_current_pli(page):
     labels = [
@@ -3563,6 +3603,11 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                     facility_block = get_facility_name_and_address(pframe)
                     if facility_block:
                         values['ir_with_address'] = facility_block
+                        lines = [ln.strip() for ln in facility_block.splitlines() if ln.strip()]
+                        facility_name = lines[0] if lines else ""
+                        facility_address = "\n".join(lines[1:]) if len(lines) > 1 else ""
+                        values["facility_name"] = facility_name
+                        values["facility_address"] = facility_address
                     partners_for_ui = get_partners_for_ui(pframe)
                     if partners_for_ui:
                         values["_external_contacts"] = partners_for_ui

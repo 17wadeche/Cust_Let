@@ -287,10 +287,18 @@ class CustomerLetterApp(tk.Tk):
         self.out_dir = out_dir
         self.last_saved_path = None
         ir_block = self.values.get("ir_with_address", "") or ""
-        ir_name_from_values = self.values.get("ir_name", "") or ""
         parsed = parse_ir_address_block(ir_block)
+        ir_name_from_values = (self.values.get("ir_name") or "").strip()
+        facility_name_from_values = (self.values.get("facility_name") or "").strip()
+        facility_addr_from_values = (self.values.get("facility_address") or "").strip()
         if ir_name_from_values:
             parsed["ir_name"] = ir_name_from_values
+        if facility_name_from_values:
+            parsed["facility_name"] = facility_name_from_values
+        if facility_addr_from_values:
+            parsed["facility_address"] = facility_addr_from_values
+        if facility_addr_from_values:
+            parsed["country"] = extract_country_from_address(facility_addr_from_values)
         self.ir_name_entry.delete(0, tk.END)
         self.ir_name_entry.insert(0, parsed["ir_name"])
         self.facility_name_entry.delete(0, tk.END)
