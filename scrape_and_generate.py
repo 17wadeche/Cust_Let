@@ -995,75 +995,8 @@ def _replace_dashes_with_bullets(text: str) -> str:
     if not text:
         return text
     return re.sub(r'^- ', '\u2022 ', text, flags=re.MULTILINE)
-def _has_picture_video(text: str) -> bool:
-    if not text:
-        return False
-    t = re.sub(r'\s+', ' ', text.lower())
-    patterns = [
-        r'picture\s*/\s*video\s+was\s+provided',
-        r'picture/video\s+was\s+provided',
-        r'photo(?:\(s\)|s)?\s+was\s+provided',
-        r'photo(?:\(s\)|s)?\s+were\s+provided',
-        r'image(?:s)?\s+was\s+provided',
-        r'image(?:s)?\s+were\s+provided',
-        r'customer\s+provided\s+(?:a\s+)?(?:picture|video|photo|photos|image|images)',
-        r'visual\s+inspection\s+of\s+the\s+returned\s+photo',
-    ]
-    return any(re.search(p, t, re.I) for p in patterns)
-def _process_picture_pa(text: str) -> str:
-    if not text:
-        return text
-    BULLET = '\u2022'
-    t = _normalize_text_preserve(text)
-    t = re.sub(
-        r'(?is)\bthe\s+product\s+sample\s+was\s+not\s+returned\b.*?\b(?:picture|video|photo|image)(?:\s*/\s*(?:picture|video|photo|image))?\b.*?(?:provided|submitted).*?(?:for\s+analysis)?\s*[.;:]?',
-        '',
-        t
-    )
-    t = re.sub(r'(?im)^\s*visual\s+inspection\s*:\s*$', 'Picture Evaluation:', t)
-    t = re.sub(
-        r'(?im)^\s*a\s+visual\s+inspection\s+of\s+the\s+returned\s+photo(?:\(\s*s\s*\)|s)?\s+noted\s*:\s*$',
-        'Picture Evaluation:',
-        t
-    )
-    lines = t.splitlines()
-    out = []
-    i = 0
-    n = len(lines)
-    while i < n:
-        s = lines[i].strip()
-        if re.match(
-            r'(?i)^a\s+visual\s+inspection\s+of\s+the\s+returned\s+photo(?:\(\s*s\s*\)|s)?\s+noted\s*:\s*$',
-            s
-        ):
-            i += 1
-            continue
-        if re.match(r'(?i)^evaluation\s*:\s*$', s):
-            i += 1
-            while i < n:
-                s2 = lines[i].strip()
-                if (
-                    s2 == "" or
-                    s2.startswith(BULLET) or
-                    re.match(r'^\-\s+', s2) or
-                    re.match(r'^\*\s+', s2) or
-                    re.match(r'^\d+\.\s+', s2)
-                ):
-                    i += 1
-                    continue
-                break
-            continue
-        out.append(lines[i])
-        i += 1
-    t = "\n".join(out)
-    t = re.sub(r'[ \t]{2,}', ' ', t)
-    t = re.sub(r'\n{3,}', '\n\n', t).strip()
-    return t
-def _format_analysis_block(product_desc: str, summary: str, product_count: int = 1, include_lead: bool = True, has_picture: bool = False) -> str:
-    s = summary or ""
-    if has_picture:
-        s = _process_picture_pa(s)
-    s = _normalize_text_preserve(s)
+def _format_analysis_block(product_desc: str, summary: str, product_count: int = 1, include_lead: bool = True) -> str:
+    s = "" if summary is None else _normalize_text_preserve(summary)
     s = _replace_dashes_with_bullets(s)
     if not s.strip() or s.strip() == DEFAULT_PA_TEXT:
         return DEFAULT_PA_TEXT
@@ -1071,16 +1004,10 @@ def _format_analysis_block(product_desc: str, summary: str, product_count: int =
         return s.lstrip("\n")
     count_word = _number_word(product_count)
     desc = (product_desc or '').strip()
-    if has_picture:
-        if product_count == 1:
-            lead = f"{count_word} {desc} and one picture were received for evaluation. Examination of the sample and picture is provided below."
-        else:
-            lead = f"{count_word} {desc} and one picture were received for evaluation. Examination of the samples and picture is provided below."
+    if product_count == 1:
+        lead = f"{count_word} {desc} was received for evaluation. Examination of the sample is described below."
     else:
-        if product_count == 1:
-            lead = f"{count_word} {desc} was received for evaluation. Examination of the sample is described below."
-        else:
-            lead = f"{count_word} {desc} were received for evaluation. Examination of the samples is described below."
+        lead = f"{count_word} {desc} were received for evaluation. Examination of the samples is described below."
     return lead + "\n\n" + s.lstrip("\n")
 def get_current_activity_product_code(page) -> str:
     for fr in page.frames:
@@ -1160,6 +1087,31 @@ def _safe_td_text(td, preserve=False):
         except Exception:
             raw = ""
     return _normalize_text(raw) if not preserve else _normalize_text_preserve(raw)
+def _header_index_by_name(tbl, header_names):
+    try:
+        hdr_cells = tbl.locator("xpath=.//tr[1]/th|.//tr[1]/td")
+        n = hdr_cells.count()
+        for i in range(n):
+            htxt = clean(hdr_cells.nth(i).inner_text()).lower()
+            if htxt in header_names:
+                return i
+    except Exception:
+        pass
+    return None
+def _cell_text_by_col_index(row, col_idx):
+    if col_idx is None:
+        return ""
+    try:
+        cells = row.locator("xpath=.//td|.//th")
+        if cells.count() > col_idx:
+            c = cells.nth(col_idx)
+            txt = clean(c.inner_text())
+            if not txt:
+                txt = clean(c.get_attribute("title") or c.get_attribute("aria-label") or "")
+            return txt
+    except Exception:
+        pass
+    return ""
 def read_all_products(page, root_frame):
     click_tab_by_text(page, root_frame, "Product Line Items") or \
     click_tab_by_text(page, root_frame, "_ovviewset.do_0002")
@@ -3646,7 +3598,6 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
         pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
         per_product_pa = {}
         unmatched_pa = []  # just for logging/debug, not used in outputs
-        _pa_raw_entries = []
         for txid in pa_ids:
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
             raw_summary, prod_code = read_analysis_summary_and_product_for_txid(page, txid)
@@ -3662,49 +3613,32 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 code_to_idx,
                 tx_product_map,
             )
-            is_picture = _has_picture_video(raw_summary)
-            log(f"[PA-SUMMARY] txid={txid} is_picture={is_picture}")
-            _pa_raw_entries.append({
-                "txid": txid,
-                "summary": summary,
-                "idx": idx,
-                "is_picture": is_picture,
-            })
-        _pa_raw_entries.sort(key=lambda e: (e["idx"] or 999, 0 if e["is_picture"] else 1))
-        pa_candidates = {}  # idx -> list of entries
-        for entry in _pa_raw_entries:
-            idx = entry["idx"]
-            if not idx:
-                txid = entry.get("txid", "")
+            if idx:
+                prod_desc = ""
+                if 1 <= idx <= len(products):
+                    prod_desc = products[idx - 1].get("desc", "")
+                same_product_count = 1
+                if 1 <= idx <= len(products):
+                    target_id = (products[idx - 1].get("id") or "").strip().upper()
+                    target_desc = (products[idx - 1].get("desc") or "").strip().upper()
+                    same_product_count = sum(
+                        1 for p in products
+                        if ((p.get("id") or "").strip().upper() == target_id and target_id)
+                        or ((p.get("desc") or "").strip().upper() == target_desc and target_desc)
+                    )
+                    if same_product_count < 1:
+                        same_product_count = 1
+                is_first = idx not in per_product_pa
+                formatted = _format_analysis_block(
+                    prod_desc, summary,
+                    product_count=same_product_count,
+                    include_lead=is_first,
+                )
+                prev = per_product_pa.get(idx, "")
+                per_product_pa[idx] = (prev + ("\n\n" if prev else "") + formatted).strip()
+            else:
+                unmatched_pa.append(summary)
                 log(f"[PA-SUMMARY] txid={txid} could not be matched to any included product; analysis ignored.")
-                continue
-            pa_candidates.setdefault(idx, []).append(entry)
-        per_product_pa = {}
-        for idx, entries in pa_candidates.items():
-            pic_entries = [e for e in entries if e.get("is_picture")]
-            chosen = pic_entries[-1] if pic_entries else entries[-1]
-            summary = chosen["summary"]
-            is_picture = chosen["is_picture"]
-            prod_desc = ""
-            if 1 <= idx <= len(products):
-                prod_desc = products[idx - 1].get("desc", "")
-            same_product_count = 1
-            if 1 <= idx <= len(products):
-                target_id = (products[idx - 1].get("id") or "").strip().upper()
-                target_desc = (products[idx - 1].get("desc") or "").strip().upper()
-                same_product_count = sum(
-                    1 for p in products
-                    if ((p.get("id") or "").strip().upper() == target_id and target_id)
-                    or ((p.get("desc") or "").strip().upper() == target_desc and target_desc)
-                ) or 1
-            formatted = _format_analysis_block(
-                prod_desc,
-                summary,
-                product_count=same_product_count,
-                include_lead=True,
-                has_picture=is_picture,
-            )
-            per_product_pa[idx] = formatted
         for idx, text in per_product_pa.items():
             values[f"analysis_{idx}"] = text
         all_pa_blocks = list(per_product_pa.values())
