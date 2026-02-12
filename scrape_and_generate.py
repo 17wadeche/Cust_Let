@@ -1032,16 +1032,19 @@ def read_analysis_summary_and_product_for_txid(page, txid: str):
     ok = search_activities_for_id(page, txid)
     if not ok:
         log(f"[PA-SUMMARY] search_activities_for_id failed for txid={txid}")
-        return "", ""
+        return "", "", ""
     prod_code = get_current_activity_product_code(page)
     log(f"[PA-SUMMARY] txid={txid} → bcTitle product={prod_code!r}")
     click_tab_by_text(page, page.main_frame, "Text Info") or \
     click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
+    raw_txt = read_analysis_raw_text_for_current_pli(page)
     txt = read_analysis_summary_for_current_pli(page)
     if not txt:
         page.wait_for_timeout(500)
         txt = read_analysis_summary_for_current_pli(page)
-    return (txt or "").strip(), (prod_code or "").strip()
+        if not raw_txt:
+            raw_txt = read_analysis_raw_text_for_current_pli(page)
+    return (txt or "").strip(), (prod_code or "").strip(), (raw_txt or "").strip()
 def read_investigation_summary_and_product_for_txid(page, txid: str):
     ok = search_activities_for_id(page, txid)
     if not ok:
@@ -2000,6 +2003,107 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         log("[TextInfo] No 'Text' label found")
     log("[TextInfo] ERROR: All extraction methods failed, returning None")
     return None
+def read_text_by_labels_raw(page, wanted_labels):
+    fr, tbl = _find_latest_analysis_table_nearby(page)
+    if not (fr and tbl and tbl.count()):
+        return None
+    row = None
+    all_rows = tbl.locator(
+        "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]]"
+    )
+    row_count = all_rows.count()
+    for i in range(row_count):
+        candidate_row = all_rows.nth(i)
+        type_td = candidate_row.locator(
+            "xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') and contains(@id,'-TextType')]"
+        ).first
+        if not type_td.count():
+            continue
+        type_value = ""
+        select = type_td.locator("xpath=.//select").first
+        if select.count():
+            try:
+                selected = select.locator("xpath=.//option[@selected]").first
+                if selected.count():
+                    type_value = clean(selected.inner_text())
+                else:
+                    type_value = clean(select.evaluate("""
+                        el => {
+                            const idx = el.selectedIndex;
+                            return idx >= 0 && el.options[idx] ? el.options[idx].text : '';
+                        }
+                    """))
+            except Exception:
+                pass
+        if not type_value:
+            type_value = clean(type_td.inner_text())
+        if not type_value:
+            continue
+        type_lower = type_value.strip().lower()
+        for label in wanted_labels:
+            label_lower = label.strip().lower()
+            if type_lower == label_lower or label_lower in type_lower:
+                row = candidate_row
+                break
+        if row:
+            break
+    if not row:
+        for t in wanted_labels:
+            cand = tbl.locator(
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') "
+                "and contains(@id,'-TextType') and normalize-space(.)=" + xpath_literal(t) + "]]"
+            ).first
+            if cand.count():
+                row = cand
+                break
+    if not row:
+        for t in wanted_labels:
+            low = t.lower()
+            cand = tbl.locator(
+                "xpath=.//tr[td[starts-with(@id,'GUIDE-TextInfoTable-') "
+                "and contains(@id,'-TextType') and "
+                f"contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{low}')]]"
+            ).first
+            if cand.count():
+                row = cand
+                break
+    if not row:
+        return None
+    td = row.locator(
+        "xpath=.//td[starts-with(@id,'GUIDE-TextInfoTable-') "
+        "and contains(@id,'-Text') and not(contains(@id,'-TextType'))]"
+    ).first
+    if not td.count():
+        return None
+    a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
+    if a.count():
+        full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
+        if full:
+            return full
+    try:
+        raw = td.evaluate("n => n.textContent || ''") or ""
+        if raw.strip():
+            return raw.strip()
+    except Exception:
+        pass
+    input_el = td.locator("xpath=.//textarea | .//input").first
+    if input_el.count():
+        try:
+            val = input_el.input_value()
+            if val:
+                return val.strip()
+        except Exception:
+            pass
+    return None
+def read_analysis_raw_text_for_current_pli(page):
+    labels = [
+        "Analysis Summary",
+        "Product Analysis Summary",
+        "Analysis/Investigation Summary",
+        "Analysis/Investigation conclusion",
+        "Analysis/Investigation",
+    ]
+    return (read_text_by_labels_raw(page, labels) or "").strip()
 def read_analysis_summary_for_current_pli(page):
     labels = [
         "Analysis Summary",
@@ -3148,38 +3252,31 @@ def _strip_analysis_phrases(text: str) -> str:
     text = re.sub(r'[ \t]{2,}', ' ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
-def _get_column_index_by_header_text(frame, table_locator, header_texts):
-    try:
-        if not table_locator.count():
-            return None
-        headers = table_locator.locator("xpath=.//thead//th | .//tr[1]//th")
-        for i in range(headers.count()):
-            header = headers.nth(i)
-            header_text = clean(header.inner_text())
-            for expected in header_texts:
-                if expected.lower() in header_text.lower():
-                    return i
-        return None
-    except Exception as e:
-        log(f"[Partners] Error finding column: {e}")
-        return None
-def _get_cell_by_column_index(row_locator, col_index):
-    if col_index is None:
-        return ""
-    try:
-        cells = row_locator.locator("xpath=.//td")
-        if cells.count() > col_index:
-            cell = cells.nth(col_index)
-            txt = clean(cell.inner_text())
-            if txt:
-                return txt
-            txt = clean(cell.get_attribute("title") or cell.get_attribute("aria-label") or "")
-            if txt:
-                return txt
-        return ""
-    except Exception as e:
-        log(f"[Partners] Error getting cell at index {col_index}: {e}")
-        return ""
+def _is_image_pa(raw_text: str) -> bool:
+    if not raw_text:
+        return False
+    return bool(re.search(
+        r'picture\s*/\s*video\s+was\s+provided',
+        raw_text,
+        re.IGNORECASE
+    ))
+def _clean_image_pa_text(text: str) -> str:
+    if not text:
+        return text
+    text = re.sub(
+        r'^The\s+product\s+sample\s+was\s+not\s+returned\s+to\s+the\s*',
+        '', text, flags=re.IGNORECASE
+    ).lstrip()
+    text = re.sub(
+        r'\n*^Evaluation\s*:\s*\n(?:\s*[-\u2022].*(?:\n|$))*',
+        '', text, flags=re.IGNORECASE | re.MULTILINE
+    )
+    text = re.sub(
+        r'^Visual\s+inspection\s*:',
+        'Picture Evaluation:',
+        text, flags=re.IGNORECASE
+    )
+    return text.rstrip()
 def get_partners_for_ui(frame):
     tbl = _partners_table(frame)
     if not tbl:
@@ -3597,10 +3694,15 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
         pa_ids_raw = values.get("assoc_tx_product_analysis_ids", "") or ", ".join(assoc.get("product_analysis", []))
         pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
         per_product_pa = {}
-        unmatched_pa = []  # just for logging/debug, not used in outputs
+        per_product_pa_image = {}  # image-based PAs ("picture/video was provided")
+        unmatched_pa = []
         for txid in pa_ids:
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
-            raw_summary, prod_code = read_analysis_summary_and_product_for_txid(page, txid)
+            raw_summary, prod_code, raw_txt = read_analysis_summary_and_product_for_txid(page, txid)
+            is_image = _is_image_pa(raw_txt)
+            if is_image:
+                log(f"[PA-SUMMARY] txid={txid} detected as IMAGE PA "
+                    f"(truly raw text contains 'picture/video was provided')")
             summary = _normalize_text_preserve(raw_summary)
             summary = _strip_analysis_phrases(summary)
             if not summary:
@@ -3628,19 +3730,39 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                     )
                     if same_product_count < 1:
                         same_product_count = 1
-                is_first = idx not in per_product_pa
-                formatted = _format_analysis_block(
-                    prod_desc, summary,
-                    product_count=same_product_count,
-                    include_lead=is_first,
-                )
-                prev = per_product_pa.get(idx, "")
-                per_product_pa[idx] = (prev + ("\n\n" if prev else "") + formatted).strip()
+                if is_image:
+                    cleaned = _clean_image_pa_text(summary)
+                    prev_img = per_product_pa_image.get(idx, "")
+                    per_product_pa_image[idx] = (
+                        prev_img + ("\n\n" if prev_img else "") + cleaned
+                    ).strip()
+                    log(f"[PA-SUMMARY] txid={txid} stored as IMAGE PA "
+                        f"for product index {idx}")
+                else:
+                    is_first = idx not in per_product_pa
+                    formatted = _format_analysis_block(
+                        prod_desc, summary,
+                        product_count=same_product_count,
+                        include_lead=is_first,
+                    )
+                    prev = per_product_pa.get(idx, "")
+                    per_product_pa[idx] = (
+                        prev + ("\n\n" if prev else "") + formatted
+                    ).strip()
             else:
                 unmatched_pa.append(summary)
                 log(f"[PA-SUMMARY] txid={txid} could not be matched to any included product; analysis ignored.")
         for idx, text in per_product_pa.items():
             values[f"analysis_{idx}"] = text
+        for idx, text in per_product_pa_image.items():
+            values[f"analysis_image_{idx}"] = text
+            log(f"[PA-IMAGE] Product {idx} has image PA text "
+                f"(length={len(text)})")
+        values["_pa_image_indices"] = sorted(per_product_pa_image.keys())
+        for idx, text in per_product_pa_image.items():
+            values[f"analysis_image_{idx}"] = text
+            log(f"[PA-IMAGE] Product {idx} has image PA text (length={len(text)})")
+        values["_pa_image_indices"] = sorted(per_product_pa_image.keys())
         all_pa_blocks = list(per_product_pa.values())
         if all_pa_blocks:
             values["analysis_results"] = "\n\n".join(all_pa_blocks)
