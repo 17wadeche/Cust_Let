@@ -3783,7 +3783,26 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                     r'Examination of the samples and picture is provided below.',
                     existing, count=1
                 )
-                per_product_pa[idx] = existing + "\n\n" + img_text
+                insert_done = False
+                m = re.search(r'(?im)^\s*Visual inspection\s*:', existing)
+                if m:
+                    per_product_pa[idx] = (
+                        existing[:m.start()].rstrip() + "\n\n" +
+                        img_text.strip() + "\n\n" +
+                        existing[m.start():].lstrip()
+                    )
+                    insert_done = True
+                if not insert_done:
+                    m = re.search(r'(?im)^\s*Evaluation\s*:', existing)
+                    if m:
+                        per_product_pa[idx] = (
+                            existing[:m.start()].rstrip() + "\n\n" +
+                            img_text.strip() + "\n\n" +
+                            existing[m.start():].lstrip()
+                        )
+                        insert_done = True
+                if not insert_done:
+                    per_product_pa[idx] = existing.rstrip() + "\n\n" + img_text.strip()
             else:
                 prod_desc = ""
                 if 1 <= idx <= len(products):
@@ -3792,8 +3811,8 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 desc = (prod_desc or '').strip()
                 lead = (f"{count_word} {desc} and one picture were received for evaluation. "
                         f"Examination of the sample and picture is provided below.")
-                per_product_pa[idx] = lead + "\n\n" + img_text
-            log(f"[PA-IMAGE] Product {idx}: appended image PA text into analysis_{idx}")
+                per_product_pa[idx] = lead + "\n\n" + img_text.strip()
+            log(f"[PA-IMAGE] Product {idx}: inserted image PA text into analysis_{idx}")
         for idx, text in per_product_pa.items():
             values[f"analysis_{idx}"] = text
         values["_pa_image_indices"] = sorted(per_product_pa_image.keys())
