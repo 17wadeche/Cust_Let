@@ -54,6 +54,62 @@ def _xml_convert_newlines_to_br(xml: str) -> str:
         parts = text.split('\n')
         return open_tag + ('</w:t><w:br/><w:t xml:space="preserve">'.join(parts)) + close_tag
     return _WT_RX.sub(repl, xml)
+def _convert_bullets_to_indented_paras(xml: str) -> str:
+    BULLET = '\u2022'
+    def find_rpr_before(xml_str, pos):
+        chunk = xml_str[max(0, pos-3000):pos]
+        matches = list(re.finditer(r'<w:rPr>(.*?)</w:rPr>', chunk, re.S))
+        if matches:
+            return '<w:rPr>' + matches[-1].group(1) + '</w:rPr>'
+        return ''
+    def find_ppr_before(xml_str, pos):
+        chunk = xml_str[max(0, pos-3000):pos]
+        matches = list(re.finditer(r'<w:pPr>(.*?)</w:pPr>', chunk, re.S))
+        if matches:
+            return '<w:pPr>' + matches[-1].group(1) + '</w:pPr>'
+        return ''
+    bullet_pattern = re.compile(
+        r'(</w:t>)\s*(<w:br/>)\s*(<w:t[^>]*>)\s*' + re.escape(BULLET) + r'[ \t]*',
+        re.UNICODE
+    )
+    matches = list(bullet_pattern.finditer(xml))
+    for m in reversed(matches):
+        rpr = find_rpr_before(xml, m.start())
+        replacement = (
+            '</w:t></w:r></w:p>'
+            '<w:p><w:pPr>'
+            '<w:ind w:left="720" w:hanging="360"/>'
+            '</w:pPr>'
+            f'<w:r>{rpr}<w:t xml:space="preserve">{BULLET}\t'
+        )
+        xml = xml[:m.start()] + replacement + xml[m.end():]
+    br_pattern = re.compile(
+        r'(</w:t>)\s*(<w:br/>)\s*(<w:t[^>]*>)',
+    )
+    def is_in_indented_para(xml_str, pos):
+        chunk = xml_str[max(0, pos-2000):pos]
+        last_p = max(chunk.rfind('<w:p>'), chunk.rfind('<w:p><w:pPr>'))
+        if last_p == -1:
+            return False
+        return 'w:ind' in chunk[last_p:]
+    matches2 = list(br_pattern.finditer(xml))
+    for m in reversed(matches2):
+        if is_in_indented_para(xml, m.start()):
+            rpr = find_rpr_before(xml, m.start())
+            after = xml[m.end():m.end()+10]
+            if after.lstrip().startswith(BULLET):
+                continue
+            original_ppr = find_ppr_before(xml, m.start())
+            clean_ppr = re.sub(r'<w:ind[^/]*/>', '', original_ppr)
+            if clean_ppr == '<w:pPr></w:pPr>':
+                clean_ppr = ''
+            replacement = (
+                '</w:t></w:r></w:p>'
+                f'<w:p>{clean_ppr}'
+                f'<w:r>{rpr}<w:t xml:space="preserve">'
+            )
+            xml = xml[:m.start()] + replacement + xml[m.end():]
+    return xml
 def _norm(s: str) -> str:
     return re.sub(r'\s+', ' ', (s or '').replace('\xa0',' ')).strip().lower()
 def _cell_txt(cell: _Cell) -> str:
@@ -442,6 +498,7 @@ def replace_everywhere(doc: Document, mapping: dict):
         plural = (mapping.get('_product_count') or 0) > 1
         new_xml = _apply_plural_s(new_xml, plural)
         new_xml = _xml_convert_newlines_to_br(new_xml)
+        new_xml = _convert_bullets_to_indented_paras(new_xml)
         if new_xml != xml:
             print("[DOCX] replacements applied in", getattr(part, 'partname', '<?>'))
             try:
@@ -922,6 +979,7 @@ def _postprocess_investigation_text(text: str) -> str:
         return ""
     body = _extract_investigation_body(text)
     body = _strip_leading_based_on_evidence(body)
+    body = _replace_dashes_with_bullets(body)
     if INV_ASSESSMENT_TAG.lower() in body.lower():
         return body.strip()
     if body.endswith((".", "!", "?")):
@@ -929,11 +987,27 @@ def _postprocess_investigation_text(text: str) -> str:
     else:
         sep = ". "
     return (body + sep + INV_ASSESSMENT_TAG).strip()
-def _format_analysis_block(product_desc: str, summary: str) -> str:
+def _number_word(n: int) -> str:
+    words = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five",
+             6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten"}
+    return words.get(n, str(n))
+def _replace_dashes_with_bullets(text: str) -> str:
+    if not text:
+        return text
+    return re.sub(r'^- ', '\u2022 ', text, flags=re.MULTILINE)
+def _format_analysis_block(product_desc: str, summary: str, product_count: int = 1, include_lead: bool = True) -> str:
     s = "" if summary is None else _normalize_text_preserve(summary)
+    s = _replace_dashes_with_bullets(s)
     if not s.strip() or s.strip() == DEFAULT_PA_TEXT:
         return DEFAULT_PA_TEXT
-    lead = f"{(product_desc or '').strip()} was received for evaluation. Examination of the sample is described below."
+    if not include_lead:
+        return s.lstrip("\n")
+    count_word = _number_word(product_count)
+    desc = (product_desc or '').strip()
+    if product_count == 1:
+        lead = f"{count_word} {desc} was received for evaluation. Examination of the sample is described below."
+    else:
+        lead = f"{count_word} {desc} were received for evaluation. Examination of the samples is described below."
     return lead + "\n\n" + s.lstrip("\n")
 def get_current_activity_product_code(page) -> str:
     for fr in page.frames:
@@ -3042,30 +3116,22 @@ def read_investigation_summary_for_current_pli(page):
 def _apply_plural_s(xml: str, plural: bool) -> str:
     rx = re.compile(r'(\{\{|\[\[)\s*s\s*(\}\}|\]\])', re.I)
     return rx.sub('s' if plural else '', xml)
-_BOILERPLATE_SENTENCE_RX = re.compile(
-    r"""
-    (?P<prefix>^|[.!?]\s+|\n+)             # sentence boundary before the boilerplate
-    (?P<sentence>
-        (?:This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+
-        |
-           Returned\s+Product\s+Analysis\s*\(RPA\)\s*Lab
-        |
-           (?:The\s+)?RPA\s+Lab\s+received\s+one
-        )
-        [^.!?]*[.!?]?                      # rest of that sentence up to its terminator
-    )
-    """,
-    re.IGNORECASE | re.VERBOSE | re.MULTILINE,
-)
+_BOILERPLATE_SENTENCES = [
+    re.compile(r'This\s+report\s+is\s+based\s+on\s+information\s+provided\s+by\s+[^.!?]*[.!?]?\s*', re.I),
+    re.compile(r'Returned\s+Product\s+Analysis\s*\(RPA\)\s*Lab[^.!?]*[.!?]?\s*', re.I),
+    re.compile(r'(?:The\s+)?RPA\s+Lab\s+received\s+one[^.!?]*[.!?]?\s*', re.I),
+    re.compile(r'This\s+complaint\s+will\s+be\s+used\s+for\s+tracking\s+and\s+trending\s+purposes\.?\s*', re.I),
+    re.compile(r'The\s+most\s+likely\s+cause\s+was\s+a\s+component\s+failure\.?\s*', re.I),
+    re.compile(r'The\s+failure\s+has\s+been\s+escalated\s+to\s+engineering\s+for\s+further\s+analysis\.?\s*', re.I),
+]
 def _strip_boilerplate_sentences(s: str) -> str:
     if not s:
         return s
-    def repl(m: re.Match) -> str:
-        return m.group('prefix')
-    out = _BOILERPLATE_SENTENCE_RX.sub(repl, s)
-    out = re.sub(r'[ \t]{2,}', ' ', out)
-    out = re.sub(r'\n{3,}', '\n\n', out)
-    return out.strip()
+    for rx in _BOILERPLATE_SENTENCES:
+        s = rx.sub(' ', s)
+    s = re.sub(r'[ \t]{2,}', ' ', s)
+    s = re.sub(r'\n{3,}', '\n\n', s)
+    return s.strip()
 def _strip_analysis_phrases(text: str) -> str:
     if not text:
         return ""
@@ -3551,7 +3617,23 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 prod_desc = ""
                 if 1 <= idx <= len(products):
                     prod_desc = products[idx - 1].get("desc", "")
-                formatted = _format_analysis_block(prod_desc, summary)
+                same_product_count = 1
+                if 1 <= idx <= len(products):
+                    target_id = (products[idx - 1].get("id") or "").strip().upper()
+                    target_desc = (products[idx - 1].get("desc") or "").strip().upper()
+                    same_product_count = sum(
+                        1 for p in products
+                        if ((p.get("id") or "").strip().upper() == target_id and target_id)
+                        or ((p.get("desc") or "").strip().upper() == target_desc and target_desc)
+                    )
+                    if same_product_count < 1:
+                        same_product_count = 1
+                is_first = idx not in per_product_pa
+                formatted = _format_analysis_block(
+                    prod_desc, summary,
+                    product_count=same_product_count,
+                    include_lead=is_first,
+                )
                 prev = per_product_pa.get(idx, "")
                 per_product_pa[idx] = (prev + ("\n\n" if prev else "") + formatted).strip()
             else:
