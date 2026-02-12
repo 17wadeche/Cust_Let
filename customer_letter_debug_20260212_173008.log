@@ -1,0 +1,329 @@
+[2026-02-12 17:30:08] Starting scrape for complaint: 706854613
+[2026-02-12 17:30:08] Log file: customer_letter_debug_20260212_173008.log
+[2026-02-12 17:30:08] Using proactor: IocpProactor
+[2026-02-12 17:30:09] Navigating to CRM: https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/default.htm?
+[2026-02-12 17:30:10] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-12 17:30:11] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-12 17:30:11] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-12 17:30:11] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-12 17:30:11] [wait] scanning 1 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-12 17:30:13] [wait] scanning 2 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-12 17:30:13] [wait] scanning 5 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", "xpath=//input[@id='C12_W37_V38_SearchValue']", "xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')]", "xpath=//input[contains(@class,'th-sif') and contains(@onkeydown,'htmlbEnterKey')]", "xpath=//*[normalize-space(.)='with:']/following::input[1]", "xpath=(//a[normalize-space(.)='Go'] | //button[normalize-space(.)='Go'] | //input[@value='Go'])[1]/preceding::input[contains(@class,'th-sif')][1]"]
+[2026-02-12 17:30:14] [wait] found xpath=//input[@tempname and contains(translate(@tempname,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search_value')] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-12 17:30:14] [search] polling every 2s for search input…
+[2026-02-12 17:30:14] [wait] scanning 5 frames for any of: ["xpath=//input[contains(@id,'SearchValue')]", 'css=#C1_W1_V2_C9_W28_V29_C12_W37_V38_launcher\\.do > span > table > tbody > tr > td > span.th-if-wrapper > input', 'xpath=/html/body/form/div[5]/div/table/tbody/tr[1]/td/div/div/div/div/table/tbody/tr/td[1]/div/div/span/table/tbody/tr/td/span[3]/input']
+[2026-02-12 17:30:14] [wait] found xpath=//input[contains(@id,'SearchValue')] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-12 17:30:14] [search] Found input via selector: xpath=//input[contains(@id,'SearchValue')] in frame url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min name=WorkAreaFrame1
+[2026-02-12 17:30:14] [search] filling complaint id: 706854613
+[2026-02-12 17:30:15] [search] clicking submit
+[2026-02-12 17:30:15] [wait] waiting for results: xpath=//span[contains(@class,'title')][contains(normalize-space(.),'Product Line Items')]
+[2026-02-12 17:30:22] [step 1] Partners tab → IR name & facility
+[2026-02-12 17:30:22] [wait] scanning 5 frames for any of: ["xpath=//a[contains(@class,'ui-tabs-anchor')][normalize-space(.)='Partners']", 'text=Partners', "xpath=//a[@class='ui-tabs-anchor' and contains(@href,'_ovviewset.do_0008')]"]
+[2026-02-12 17:30:22] [wait] found xpath=//a[contains(@class,'ui-tabs-anchor')][normalize-space(.)='Partners'] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-12 17:30:22] [wait] scanning 5 frames for any of: ["xpath=//td[starts-with(@id,'GUIDE-PartnersTable-')]", "xpath=//td[@aria-label='Partner Function']", "xpath=//th[normalize-space(.)='Partner Function']"]
+[2026-02-12 17:30:22] [wait] found xpath=//td[starts-with(@id,'GUIDE-PartnersTable-')] in frame name=WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/bc/bsp/sap/crm_ui_frame/BSPWDApplication.do?sap-client=010&sap-language=EN&sap-domainrelax=min&sap-domainrelax=min
+[2026-02-12 17:30:22] [Partners] === Starting _row_by_pf_in_partners ===
+[2026-02-12 17:30:22] [Partners] Looking for Partner Functions: ['Initial Reporter', 'Initial Contact', 'Initial Reporter/Contact']
+[2026-02-12 17:30:22] [Partners] Found Partners table
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Getting all rows with PartnerFunction cells
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Found 10 rows with PartnerFunction cells
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 1/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 1 - Partner Function value: 'BU Responsible'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 1 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 2/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 2 - Partner Function value: 'Facility'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 2 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 3/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 3 - Partner Function value: 'Facility'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 3 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 4/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 4 - Partner Function value: 'Follow-up Contact'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 4 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 5/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 5 - Partner Function value: 'Geo Person Responsible'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 5 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 6/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 6 - Partner Function value: 'GEO Responsible'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 6 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 7/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 7 - Partner Function value: 'GEO Responsible'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 7 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 8/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 8 - Partner Function value: 'Internal Contact'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 8 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 9/10
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 9 - Partner Function value: 'OU Responsible'
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Row 9 - No match
+[2026-02-12 17:30:22] [Partners] EDIT MODE: Examining row 10/10
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Row 10 - Partner Function value: 'Person Responsible'
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Row 10 - No match
+[2026-02-12 17:30:23] [Partners] ERROR: No matching row found
+[2026-02-12 17:30:23] [Partners] === Starting _row_by_pf_in_partners ===
+[2026-02-12 17:30:23] [Partners] Looking for Partner Functions: ['Facility', 'Health Care Facility', 'Healthcare Facility', 'Plant']
+[2026-02-12 17:30:23] [Partners] Found Partners table
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Getting all rows with PartnerFunction cells
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Found 10 rows with PartnerFunction cells
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Examining row 1/10
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Row 1 - Partner Function value: 'BU Responsible'
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Row 1 - No match
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Examining row 2/10
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Row 2 - Partner Function value: 'Facility'
+[2026-02-12 17:30:23] [Partners] EDIT MODE: Row 2 - ✓ EXACT MATCH with 'Facility'
+[2026-02-12 17:30:23] [Partners] Partner table rows detected: 10
+[2026-02-12 17:30:23] [Partners] Sample cell IDs from first row: ['GUIDE-PartnersTable-0-PartnerID', 'GUIDE-PartnersTable-0-Address', 'GUIDE-PartnersTable-0-Name', 'GUIDE-PartnersTable-0-MainPartner', 'GUIDE-PartnersTable-0-PartnerFunction']
+[2026-02-12 17:30:23] [Partners] Row 1: pf='BU Responsible', name='MITG', addr='8200 Coral Sea St NE\nMounds View MN 55112-4391'
+[2026-02-12 17:30:23] [Partners] Row 2: pf='Facility', name='Dell Seton Medical CenterHospital', addr='1500 Red River St\nAustin TX 78701-1918'
+[2026-02-12 17:30:23] [Partners] Row 3: pf='Facility', name='Seton Childrens Hosp Of Austin', addr='601 E 15th St\nAustin TX 78701-1930'
+[2026-02-12 17:30:23] [Partners] Row 4: pf='Follow-up Contact', name='Frank Rodriguez', addr='Virtual Location\nVirtual TX 78257'
+[2026-02-12 17:30:23] [Partners] Row 5: pf='Geo Person Responsible', name='UNASSIGNED UNASSIGNED', addr=''
+[2026-02-12 17:30:24] [Partners] Row 6: pf='GEO Responsible', name='JAPAN', addr='Comodio Shiodome 5F\nTOKYO 105-0021'
+[2026-02-12 17:30:24] [Partners] Row 7: pf='GEO Responsible', name='GreaterChina', addr='Block 11, No. 3000 Long Dong Avenue\n200000 Shanghai'
+[2026-02-12 17:30:24] [Partners] Row 8: pf='Internal Contact', name='Frank Rodriguez', addr='Virtual Location\nVirtual TX 78257'
+[2026-02-12 17:30:24] [Partners] Row 9: pf='OU Responsible', name='Surgical Innovations', addr=''
+[2026-02-12 17:30:24] [Partners] Row 10: pf='Person Responsible', name='Charmell Illut', addr='Virtual Location\n1000 Manila'
+[2026-02-12 17:30:24] [Partners] partners_for_ui count: 10
+[2026-02-12 17:30:24] [Partners] ir_name = 
+[2026-02-12 17:30:24] [Partners] ir_with_address = Dell Seton Medical CenterHospital
+1500 Red River St
+Austin TX 78701-1918
+[2026-02-12 17:30:24] [step 2] Additional External References → rb_reference & report_number
+[2026-02-12 17:30:24] [nav] Clicking tab: Additional External References
+[2026-02-12 17:30:24] [AER] rb_reference=, report_number=1208613, external_contacts=0
+[2026-02-12 17:30:24] [step 3] Dates tab → event_date
+[2026-02-12 17:30:24] [nav] Clicking tab: Dates
+[2026-02-12 17:30:25] [EventDate] Found row with DateType='Event Date'
+[2026-02-12 17:30:25] [EventDate] Extracted event date: '2024-08-04'
+[2026-02-12 17:30:25] [Dates] event_date=2024-08-04
+[2026-02-12 17:30:25] [step 4] Product Line Items → all rows
+[2026-02-12 17:30:25] [nav] Clicking tab: Product Line Items
+[2026-02-12 17:30:25] [PLI] Row 1/2: Complaint='Yes' (normalized='yes')
+[2026-02-12 17:30:25] [PLI] Row 2/2: Complaint='Yes' (normalized='yes')
+[2026-02-12 17:30:25] [PLI] rows detected: 2
+[2026-02-12 17:30:25] [step 5] Text Info → event_description
+[2026-02-12 17:30:26] [nav] Clicking tab: Text Info
+[2026-02-12 17:30:26] [Text] Event description read from TD (no click), length=155
+[2026-02-12 17:30:26] [Text] description length: 128
+[2026-02-12 17:30:26] [step 6] Associated Transactions → collect Complete Investigation/Product Analysis IDs
+[2026-02-12 17:30:26] [nav] Clicking tab: Associated Transactions
+[2026-02-12 17:30:37] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Last Updated Date', 'Decision Type ,', 'RR Decision Type ,', 'Report Sub Format ,', 'Follow up Number ,', 'Communication Type ,', 'Method of Communication ,', 'Description ,', 'Product Type ,', 'Task Description ,', 'Rationale ,', '606854613', 'Staging Record', 'GUIDE-AssociatedTransactionsTable-0-LineItem', 'GUIDE-AssociatedTransactionsTable-0-SerialNumberLot', 'GUIDE-AssociatedTransactionsTable-0-Product', 'Promoted to PE', 'UNASSIGNED UNASSIGNED', '2024-08-05 11:31:45', 'GUIDE-AssociatedTransactionsTable-0-DecisionType', 'GUIDE-AssociatedTransactionsTable-0-RRDecisionType', 'GUIDE-AssociatedTransactionsTable-0-ReportSubFormat', 'GUIDE-AssociatedTransactionsTable-0-FollowupNumber', 'GUIDE-AssociatedTransactionsTable-0-CommunicationType', 'GUIDE-AssociatedTransactionsTable-0-MethodofCommunication', 'Grounding Pad Dell Seton Aug 2024', 'GUIDE-AssociatedTransactionsTable-0-ProductType', 'GUIDE-AssociatedTransactionsTable-0-TaskDescription', 'GUIDE-AssociatedTransactionsTable-0-Rationale']
+[2026-02-12 17:30:38] [AssocTx] clicking filter via role: Analysis
+[2026-02-12 17:30:46] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Destructive Analysis', 'Analysis Group', 'Status Comments', 'Last Updated Date', '809677086', 'Product Analysis', '10', '241550258T', 'E7507', 'Complete', 'Elizabeth Clarke / Lafayette CO 80026', 'Permitted', 'Clinical Data Review', 'GUIDE-AssociatedTransactionsTable-0-StatusComments', '2024-10-25 12:39:28']
+[2026-02-12 17:30:46] [AssocTx] rows visible: 1
+[2026-02-12 17:30:46] [AssocTx] rows visible: 1
+[2026-02-12 17:30:46] [AssocTx] rows visible: 1
+[2026-02-12 17:30:47] [AssocTx] rows visible: 1
+[2026-02-12 17:30:47] [AssocTx] rows visible: 1
+[2026-02-12 17:30:47] [AssocTx] rows visible: 1
+[2026-02-12 17:30:48] [AssocTx] rows visible: 1
+[2026-02-12 17:30:48] [AssocTx:Analysis] row 1/1: id=809677086 status='Complete' product='E7507' code='E7507'
+[2026-02-12 17:30:54] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Destructive Analysis', 'Analysis Group', 'Status Comments', 'Last Updated Date', '809677086', 'Product Analysis', '10', '241550258T', 'E7507', 'Complete', 'Elizabeth Clarke / Lafayette CO 80026', 'Permitted', 'Clinical Data Review', 'GUIDE-AssociatedTransactionsTable-0-StatusComments', '2024-10-25 12:39:28']
+[2026-02-12 17:30:54] [AssocTx] clicking filter via role: Investigation
+[2026-02-12 17:31:02] [AssocTx] chose grid with headers: ['Transaction ID', 'Transaction Type', 'Line Item', 'Serial Number/Lot', 'Product', 'Status', 'Person Responsible', 'Investigation Required', 'Reason No Investigation', 'Investigation Rationale', 'Formal Investigation Required', 'Reason No Formal Inv.', 'Formal Investigation Rationale', 'Last Updated Date', '809506008', 'Investigation', '10', '241550258T', 'E7507', 'Complete', 'Cindy Hoang / Lafayette CO 80026', 'Yes', 'GUIDE-AssociatedTransactionsTable-0-ReasonNoInvestigation', 'GUIDE-AssociatedTransactionsTable-0-InvestigationRationale', 'No', 'Foreseen in risk/included in monitoring', 'GUIDE-AssociatedTransactionsTable-0-FormalInvestigationRationale', '2024-10-25 12:39:28']
+[2026-02-12 17:31:03] [AssocTx] rows visible: 2
+[2026-02-12 17:31:03] [AssocTx] rows visible: 2
+[2026-02-12 17:31:03] [AssocTx] rows visible: 2
+[2026-02-12 17:31:04] [AssocTx] rows visible: 2
+[2026-02-12 17:31:04] [AssocTx] rows visible: 2
+[2026-02-12 17:31:04] [AssocTx] rows visible: 2
+[2026-02-12 17:31:04] [AssocTx] rows visible: 2
+[2026-02-12 17:31:05] [AssocTx:Investigation] row 1/2: id=809506008 status='Complete' product='E7507' code='E7507'
+[2026-02-12 17:31:05] [AssocTx:Investigation] row 2/2: id=809690765 status='Complete' product='VLFT10GEN' code='VLFT10GEN'
+[2026-02-12 17:31:05] [AssocTx] Product Analysis (Complete or fallback): ['809677086']
+[2026-02-12 17:31:05] [AssocTx] Investigations (Complete or fallback): ['809506008', '809690765']
+[2026-02-12 17:31:05] [AssocTx] TX 809677086 → Product E7507
+[2026-02-12 17:31:05] [AssocTx] TX 809506008 → Product E7507
+[2026-02-12 17:31:05] [AssocTx] TX 809690765 → Product VLFT10GEN
+[2026-02-12 17:31:05] [PA-SUMMARY] Fetching Analysis Summary for PA ID: 809677086
+[2026-02-12 17:31:06] [scope] Popup options: 'SR/PE', 'Activities'
+[2026-02-12 17:31:06] [scope] selected via popup: 'activities'
+[2026-02-12 17:31:09] [bcTitle] No product code found in any frame
+[2026-02-12 17:31:09] [PA-SUMMARY] txid=809677086 → bcTitle product=''
+[2026-02-12 17:31:09] [nav] Clicking tab: Text Info
+[2026-02-12 17:31:15] [TextInfo] === Starting read_text_by_labels ===
+[2026-02-12 17:31:15] [TextInfo] Wanted labels: ['Analysis Summary', 'Product Analysis Summary', 'Analysis/Investigation Summary', 'Analysis/Investigation conclusion', 'Analysis/Investigation']
+[2026-02-12 17:31:15] [TextInfo] Preserve format: True
+[2026-02-12 17:31:15] [TextInfo] Found TextInfo table in frame: WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Starting row iteration to find matching TextType
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Found 2 rows with TextType cells
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Examining row 1/2
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Row 1 - No <select> element found (read-only mode)
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Row 1 - Got value from inner_text: 'Analysis Summary'
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Row 1 - Comparing 'analysis summary' against wanted labels
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Row 1 - ✓ EXACT MATCH with 'Analysis Summary'
+[2026-02-12 17:31:15] [TextInfo] EDIT MODE: Successfully found row via iteration
+[2026-02-12 17:31:15] [TextInfo] Row found! Extracting text content...
+[2026-02-12 17:31:15] [TextInfo] Found Text cell, attempting extraction methods...
+[2026-02-12 17:31:15] [TextInfo] ✓ SUCCESS: Got text from <a> aria-label/title, length=758
+[2026-02-12 17:31:15] [PA-SUMMARY] txid=809677086 detected as IMAGE PA (truly raw text contains 'picture/video was provided')
+[2026-02-12 17:31:15] [Match] txid=809677086 matched via AssocTx grid product='E7507' → product index 1
+[2026-02-12 17:31:15] [PA-SUMMARY] txid=809677086 stored as IMAGE PA for product index 1
+[2026-02-12 17:31:15] [PA-IMAGE] Product 1: inserted image PA text into analysis_1
+[2026-02-12 17:31:15] [INV-SUMMARY] Fetching Investigation Summary for INV ID: 809506008
+[2026-02-12 17:31:15] [scope] already Activities: 'activities'
+[2026-02-12 17:31:17] [bcTitle] Found product in header: 'E7507' (title='Product Analysis:809677086,Clinical Data Review, SR/PE:0706854613, Product:E7507, Item:10,LotNo:241550258T')
+[2026-02-12 17:31:17] [INV-SUMMARY] txid=809506008 → bcTitle product='E7507'
+[2026-02-12 17:31:17] [nav] Clicking tab: Text Info
+[2026-02-12 17:31:21] [TextInfo] === Starting read_text_by_labels ===
+[2026-02-12 17:31:21] [TextInfo] Wanted labels: ['Summary of Investigation']
+[2026-02-12 17:31:21] [TextInfo] Preserve format: True
+[2026-02-12 17:31:21] [TextInfo] Found TextInfo table in frame: WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/
+[2026-02-12 17:31:21] [TextInfo] EDIT MODE: Starting row iteration to find matching TextType
+[2026-02-12 17:31:21] [TextInfo] EDIT MODE: Found 3 rows with TextType cells
+[2026-02-12 17:31:21] [TextInfo] EDIT MODE: Examining row 1/3
+[2026-02-12 17:31:21] [TextInfo] EDIT MODE: Row 1 - No <select> element found (read-only mode)
+[2026-02-12 17:31:22] [TextInfo] EDIT MODE: Row 1 - Got value from inner_text: 'Summary Of Investigation'
+[2026-02-12 17:31:22] [TextInfo] EDIT MODE: Row 1 - Comparing 'summary of investigation' against wanted labels
+[2026-02-12 17:31:22] [TextInfo] EDIT MODE: Row 1 - ✓ EXACT MATCH with 'Summary of Investigation'
+[2026-02-12 17:31:22] [TextInfo] EDIT MODE: Successfully found row via iteration
+[2026-02-12 17:31:22] [TextInfo] Row found! Extracting text content...
+[2026-02-12 17:31:22] [TextInfo] Found Text cell, attempting extraction methods...
+[2026-02-12 17:31:22] [TextInfo] ✓ SUCCESS: Got text from <a> aria-label/title, length=1001
+[2026-02-12 17:31:22] [Match] txid=809506008 matched via AssocTx grid product='E7507' → product index 1
+[2026-02-12 17:31:22] [INV-SUMMARY] Fetching Investigation Summary for INV ID: 809690765
+[2026-02-12 17:31:22] [scope] already Activities: 'activities'
+[2026-02-12 17:31:23] [bcTitle] Found product in header: 'E7507' (title='Investigation:809506008, PE:0706854613, Product:E7507, Item:10,LotNo:241550258T')
+[2026-02-12 17:31:23] [INV-SUMMARY] txid=809690765 → bcTitle product='E7507'
+[2026-02-12 17:31:23] [nav] Clicking tab: Text Info
+[2026-02-12 17:31:28] [TextInfo] === Starting read_text_by_labels ===
+[2026-02-12 17:31:28] [TextInfo] Wanted labels: ['Summary of Investigation']
+[2026-02-12 17:31:28] [TextInfo] Preserve format: True
+[2026-02-12 17:31:28] [TextInfo] Found TextInfo table in frame: WorkAreaFrame1 url=https://crm.medtronic.com/sap(ZT1WMEZFUlVNNFgxOWZYMTlmTVRkZk1qVTA1ajFISk84UkgtR0NqVmpub0xfUGF3PT0=)/
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Starting row iteration to find matching TextType
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Found 3 rows with TextType cells
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Examining row 1/3
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Row 1 - No <select> element found (read-only mode)
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Row 1 - Got value from inner_text: 'Summary Of Investigation'
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Row 1 - Comparing 'summary of investigation' against wanted labels
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Row 1 - ✓ EXACT MATCH with 'Summary of Investigation'
+[2026-02-12 17:31:28] [TextInfo] EDIT MODE: Successfully found row via iteration
+[2026-02-12 17:31:28] [TextInfo] Row found! Extracting text content...
+[2026-02-12 17:31:28] [TextInfo] Found Text cell, attempting extraction methods...
+[2026-02-12 17:31:28] [TextInfo] ✓ SUCCESS: Got text from <a> aria-label/title, length=996
+[2026-02-12 17:31:28] [Match] txid=809690765 matched via AssocTx grid product='VLFT10GEN' → product index 2
+[2026-02-12 17:31:28] Collected fields:
+[2026-02-12 17:31:28] {
+  "todays_date": "February 12, 2026",
+  "complaint_id": "706854613",
+  "ir_with_address": "Dell Seton Medical CenterHospital\n1500 Red River St\nAustin TX 78701-1918",
+  "report_number": "1208613",
+  "rb_reference": "",
+  "event_date": "2024-08-04",
+  "ir_name": "Customer",
+  "event_description": "postoperative above knee amputation, a second degree burn was noticed after removal of the grounding pad at flank/near buttocks.",
+  "analysis_results": "One E7507 POLYHESIVE II REM RET EL W/CORD and one picture were received for evaluation. Examination of the sample and picture is provided below.\n\nProduct Analysis laboratory; however, a picture/video was provided by the customer for analysis.\n\nVisual inspection:\n\u2022 A photo of the patient's injury.",
+  "investigation_summary": "There was not enough information to make any determination. Without the sample a detailed investigation could not be performed, and definitive cause could not be identified. However, based on the information provided in the event and/or other source, the suspected or most likely cause of the event was customer misuse. Medtronic's assessment determined that manufacturing action is not required at this time. To ensure product oversight, this complaint report is incorporated into Medtronic's complaint monitoring and tracking system. Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate.\n\n\nThere was not enough information to make any determination. Without the physical product, a definitive cause could not be identified. However, based on the information provided in the event and/or other source, the suspected or most likely cause of the event was customer misuse. Medtronic's assessment determined that manufacturing action is not required at this time. To ensure product oversight, this complaint report is incorporated into Medtronic's complaint monitoring and tracking system. Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate.",
+  "product_id_1": "E7507",
+  "product_desc_1": "E7507 POLYHESIVE II REM RET EL W/CORD",
+  "serial_or_lot_1": "LN: 241550258T",
+  "product_id_2": "VLFT10GEN",
+  "product_desc_2": "VLFT10GEN FT SERIES ENERGY PLATFORMX1",
+  "serial_or_lot_2": "SN: T6K09338DX",
+  "product_id_3": "",
+  "product_desc_3": "",
+  "serial_or_lot_3": "",
+  "facility_name": "Dell Seton Medical CenterHospital",
+  "facility_address": "1500 Red River St\nAustin TX 78701-1918",
+  "_external_contacts": [
+    {
+      "partner_function": "BU Responsible",
+      "name": "MITG",
+      "address": "8200 Coral Sea St NE\nMounds View MN 55112-4391",
+      "display": "BU Responsible: MITG\n8200 Coral Sea St NE\nMounds View MN 55112-4391"
+    },
+    {
+      "partner_function": "Facility",
+      "name": "Dell Seton Medical CenterHospital",
+      "address": "1500 Red River St\nAustin TX 78701-1918",
+      "display": "Facility: Dell Seton Medical CenterHospital\n1500 Red River St\nAustin TX 78701-1918"
+    },
+    {
+      "partner_function": "Facility",
+      "name": "Seton Childrens Hosp Of Austin",
+      "address": "601 E 15th St\nAustin TX 78701-1930",
+      "display": "Facility: Seton Childrens Hosp Of Austin\n601 E 15th St\nAustin TX 78701-1930"
+    },
+    {
+      "partner_function": "Follow-up Contact",
+      "name": "Frank Rodriguez",
+      "address": "Virtual Location\nVirtual TX 78257",
+      "display": "Follow-up Contact: Frank Rodriguez\nVirtual Location\nVirtual TX 78257"
+    },
+    {
+      "partner_function": "Geo Person Responsible",
+      "name": "UNASSIGNED UNASSIGNED",
+      "address": "",
+      "display": "Geo Person Responsible: UNASSIGNED UNASSIGNED"
+    },
+    {
+      "partner_function": "GEO Responsible",
+      "name": "JAPAN",
+      "address": "Comodio Shiodome 5F\nTOKYO 105-0021",
+      "display": "GEO Responsible: JAPAN\nComodio Shiodome 5F\nTOKYO 105-0021"
+    },
+    {
+      "partner_function": "GEO Responsible",
+      "name": "GreaterChina",
+      "address": "Block 11, No. 3000 Long Dong Avenue\n200000 Shanghai",
+      "display": "GEO Responsible: GreaterChina\nBlock 11, No. 3000 Long Dong Avenue\n200000 Shanghai"
+    },
+    {
+      "partner_function": "Internal Contact",
+      "name": "Frank Rodriguez",
+      "address": "Virtual Location\nVirtual TX 78257",
+      "display": "Internal Contact: Frank Rodriguez\nVirtual Location\nVirtual TX 78257"
+    },
+    {
+      "partner_function": "OU Responsible",
+      "name": "Surgical Innovations",
+      "address": "",
+      "display": "OU Responsible: Surgical Innovations"
+    },
+    {
+      "partner_function": "Person Responsible",
+      "name": "Charmell Illut",
+      "address": "Virtual Location\n1000 Manila",
+      "display": "Person Responsible: Charmell Illut\nVirtual Location\n1000 Manila"
+    }
+  ],
+  "_ui_name_options": [
+    "MITG",
+    "Dell Seton Medical CenterHospital",
+    "Seton Childrens Hosp Of Austin",
+    "Frank Rodriguez",
+    "UNASSIGNED UNASSIGNED",
+    "JAPAN",
+    "GreaterChina",
+    "Surgical Innovations",
+    "Charmell Illut"
+  ],
+  "_ui_addr_options": [
+    "8200 Coral Sea St NE\nMounds View MN 55112-4391",
+    "1500 Red River St\nAustin TX 78701-1918",
+    "601 E 15th St\nAustin TX 78701-1930",
+    "Virtual Location\nVirtual TX 78257",
+    "Comodio Shiodome 5F\nTOKYO 105-0021",
+    "Block 11, No. 3000 Long Dong Avenue\n200000 Shanghai",
+    "Virtual Location\n1000 Manila"
+  ],
+  "_ui_default_name": "",
+  "_ui_default_addr": "1500 Red River St\nAustin TX 78701-1918",
+  "_aer_external_contacts": [],
+  "analysis_1": "One E7507 POLYHESIVE II REM RET EL W/CORD and one picture were received for evaluation. Examination of the sample and picture is provided below.\n\nProduct Analysis laboratory; however, a picture/video was provided by the customer for analysis.\n\nVisual inspection:\n\u2022 A photo of the patient's injury.",
+  "_pa_image_indices": [
+    1
+  ],
+  "investigation_1": "There was not enough information to make any determination. Without the sample a detailed investigation could not be performed, and definitive cause could not be identified. However, based on the information provided in the event and/or other source, the suspected or most likely cause of the event was customer misuse. Medtronic's assessment determined that manufacturing action is not required at this time. To ensure product oversight, this complaint report is incorporated into Medtronic's complaint monitoring and tracking system. Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate.",
+  "investigation_2": "Medtronic conducted an investigation based upon all received information. Without a product returned for evaluation a likely cause for the reported condition could not be established. Medtronic's assessment determined that manufacturing action is not required at this time. To ensure product oversight, this complaint report is incorporated into Medtronic's complaint monitoring and tracking system. The manufacturing records for each device are thoroughly reviewed to ensure the product meets its quality specifications. Should new information become available the file will be re-opened and the investigation summary will be amended as appropriate.",
+  "product_sn_1": "",
+  "product_lot_1": "241550258T",
+  "serial_or_lot_label_1": "Lot No:",
+  "serial_or_lot_value_1": "241550258T",
+  "product_sn_2": "T6K09338DX",
+  "product_lot_2": "",
+  "serial_or_lot_label_2": "Serial No:",
+  "serial_or_lot_value_2": "T6K09338DX",
+  "assoc_tx_product_analysis_ids": "809677086",
+  "assoc_tx_investigation_ids": "809506008, 809690765",
+  "_product_count": 2,
+  "analysis_2": "Information provided to Medtronic indicated that the complaint device was not available for evaluation."
+}

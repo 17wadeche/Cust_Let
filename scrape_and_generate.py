@@ -331,6 +331,9 @@ def _build_alias_mapping(mapping: dict) -> dict:
         'lot/serial number2': out.get('serial_or_lot_2', ''),
         'serial no/lot no2': out.get('serial_or_lot_2', ''),
         'serial_no_lot_no2': out.get('serial_or_lot_2', ''),
+        'ex ref': out.get('ex_ref', ''),
+        'external reference': out.get('ex_ref', ''),
+        'external_reference': out.get('ex_ref', ''),
     }
     if out.get('rb_reference'):
         aliases.update({
@@ -1422,6 +1425,15 @@ def read_external_refs(page, root_frame):
     rep_row = _aer_row_by_type(tbl, "MPXR")
     if rep_row:
         out["report_number"] = _aer_number_from_row(rep_row)
+    ex_row = _aer_row_by_type(
+        tbl,
+        "SAP ECC Service & Repair",
+        "SAP ECC Service and Repair",   # optional variant
+        "SAP ECC",                      # optional fallback
+        "ECC Service & Repair"          # optional fallback
+    )
+    if ex_row:
+        out["ex_ref"] = _aer_number_from_row(ex_row)
     contact_rows = _aer_rows_by_type(
         tbl,
         "External Contact", "ExternalContact", "Ext Contact", "Ext. Contact"
@@ -3632,6 +3644,8 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             values["rb_reference"] = ext["rb_reference"]
         if ext.get("report_number"):
             values["report_number"] = ext["report_number"]
+        if ext.get("ex_ref"):
+            values["ex_ref"] = ext["ex_ref"]
         contacts = ext.get("external_contacts") or []
         values["_aer_external_contacts"] = contacts  
         if contacts and not values.get("external_contact"):
