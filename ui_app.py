@@ -60,59 +60,27 @@ def extract_country_from_address(address: str) -> str:
                 return country
     return "USA"
 def parse_ir_address_block(ir_block: str) -> dict:
+    default = {
+        "ir_name": "",
+        "facility_name": "",
+        "facility_address": "",
+        "country": "USA",
+    }
     if not ir_block:
-        return {
-            "ir_name": "",
-            "facility_name": "",
-            "facility_address": "",
-            "country": "USA"
-        }
-    lines = [line.strip() for line in ir_block.strip().split('\n') if line.strip()]
-    if len(lines) == 0:
-        return {
-            "ir_name": "",
-            "facility_name": "",
-            "facility_address": "",
-            "country": "USA"
-        }
-    elif len(lines) == 1:
-        return {
-            "ir_name": lines[0],
-            "facility_name": "",
-            "facility_address": "",
-            "country": "USA"
-        }
-    elif len(lines) == 2:
-        line2_lower = lines[1].lower()
-        has_address_markers = any(marker in line2_lower for marker in [
-            'street', 'st ', 'avenue', 'ave ', 'road', 'rd ', 'drive', 
-            'lane', 'blvd', 'plaza', '-', 'se-', 'ne-', 'sw-', 'nw-'
-        ])
-        if has_address_markers or len(lines[1]) > 50:
-            return {
-                "ir_name": lines[0],
-                "facility_name": "",
-                "facility_address": lines[1],
-                "country": extract_country_from_address(lines[1])
-            }
-        else:
-            return {
-                "ir_name": lines[0],
-                "facility_name": lines[1],
-                "facility_address": "",
-                "country": "USA"
-            }
-    else:
-        ir_name = lines[0]
-        facility_name = lines[1]
-        facility_address = "\n".join(lines[2:])
-        country = extract_country_from_address(facility_address)
-        return {
-            "ir_name": ir_name,
-            "facility_name": facility_name,
-            "facility_address": facility_address,
-            "country": country
-        }
+        return default
+    lines = [line.strip() for line in ir_block.splitlines() if line.strip()]
+    if not lines:
+        return default
+    ir_name = lines[0]
+    facility_name = lines[1] if len(lines) >= 2 else ""
+    facility_address = "\n".join(lines[2:]) if len(lines) >= 3 else ""
+    country = extract_country_from_address(facility_address) if facility_address else "USA"
+    return {
+        "ir_name": ir_name,
+        "facility_name": facility_name,
+        "facility_address": facility_address,
+        "country": country,
+    }
 def build_ir_address_block(ir_name: str, facility_name: str, facility_address: str, country: str) -> str:
     parts = []
     if ir_name.strip():
@@ -322,9 +290,6 @@ class CustomerLetterApp(tk.Tk):
         ir_name_from_values = self.values.get("ir_name", "") or ""
         parsed = parse_ir_address_block(ir_block)
         if ir_name_from_values:
-            if parsed["ir_name"] and parsed["ir_name"] != ir_name_from_values:
-                if not parsed["facility_name"]:
-                    parsed["facility_name"] = parsed["ir_name"]
             parsed["ir_name"] = ir_name_from_values
         self.ir_name_entry.delete(0, tk.END)
         self.ir_name_entry.insert(0, parsed["ir_name"])
@@ -407,7 +372,7 @@ class CustomerLetterApp(tk.Tk):
         ir_name = self.ir_name_entry.get().strip()
         facility_name = self.facility_name_entry.get().strip()
         facility_address = self.facility_address_text.get("1.0", "end-1c").strip()
-        country = self.country_entry.get().strip()
+        country = self.country_entry.get().strip() or extract_country_from_address(facility_address)
         self.values["ir_with_address"] = build_ir_address_block(
             ir_name, facility_name, facility_address, country
         )
