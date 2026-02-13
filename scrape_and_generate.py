@@ -1048,14 +1048,19 @@ def read_analysis_summary_and_product_for_txid(page, txid: str):
     log(f"[PA-SUMMARY] txid={txid} → bcTitle product={prod_code!r}")
     click_tab_by_text(page, page.main_frame, "Text Info") or \
     click_tab_by_text(page, page.main_frame, "_ovviewset.do_0006")
-    raw_txt = read_analysis_raw_text_for_current_pli(page)
-    txt = read_analysis_summary_for_current_pli(page)
+    raw_txt = (read_analysis_raw_text_for_current_pli(page) or "").strip()
+    txt = (read_analysis_summary_for_current_pli(page) or "").strip()
+    if not txt and raw_txt:
+        log(f"[PA-SUMMARY] txid={txid} using raw_txt fallback for summary, len={len(raw_txt)}")
+        txt = raw_txt
     if not txt:
         page.wait_for_timeout(500)
-        txt = read_analysis_summary_for_current_pli(page)
-        if not raw_txt:
-            raw_txt = read_analysis_raw_text_for_current_pli(page)
-    return (txt or "").strip(), (prod_code or "").strip(), (raw_txt or "").strip()
+        txt2 = (read_analysis_summary_for_current_pli(page) or "").strip()
+        if txt2:
+            txt = txt2
+        elif raw_txt:
+            txt = raw_txt
+    return txt, (prod_code or "").strip(), raw_txt
 def read_investigation_summary_and_product_for_txid(page, txid: str):
     ok = search_activities_for_id(page, txid)
     if not ok:
@@ -3780,6 +3785,9 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
         for txid in pa_ids:
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
             raw_summary, prod_code, raw_txt = read_analysis_summary_and_product_for_txid(page, txid)
+            if not (raw_summary or "").strip() and (raw_txt or "").strip():
+                log(f"[PA-SUMMARY] txid={txid} summary empty; falling back to raw_txt")
+                raw_summary = raw_txt
             is_image = _is_image_pa(raw_txt, raw_summary)
             log(f"[PA-IMG] txid={txid} is_image={is_image} raw_len={len(raw_txt or '')} summary_len={len(raw_summary or '')}")
             if not is_image:
