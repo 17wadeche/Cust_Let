@@ -3318,6 +3318,7 @@ def _clean_image_pa_text(text: str) -> str:
     )
     text = re.sub(r'(?m)^\s*-\s+', '\u2022 ', text)
     text = re.sub(r'\n{3,}', '\n\n', text).strip()
+    text = _strip_media_provided_sentence(text)
     return text
 def get_partners_for_ui(frame):
     tbl = _partners_table(frame)
@@ -3434,6 +3435,37 @@ def build_recipient_options(values: dict):
         "default_name": default_name,
         "default_address": default_addr,
     }
+def _strip_media_provided_sentence(text: str) -> str:
+    if not text:
+        return text
+    text = re.sub(
+        r'''(?imx)
+        (?:^|[\.\!\?]\s+|\n+)              # sentence boundary
+        (?:however,\s*)?                   # optional however
+        a\s+
+        (?:picture|photo|image)
+        (?:\s*/\s*video)?                  # optional "/video"
+        \s+was\s+provided\s+by\s+the\s+customer\s+for\s+analysis
+        \.?
+        (?=\s|$)
+        ''',
+        ' ',
+        text
+    )
+    text = re.sub(
+        r'''(?imx)
+        (?:^|[\.\!\?]\s+|\n+)
+        (?:however,\s*)?
+        (?:pictures|photos|images|videos)\s+were\s+provided\s+by\s+the\s+customer\s+for\s+analysis
+        \.?
+        (?=\s|$)
+        ''',
+        ' ',
+        text
+    )
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 def scrape_complaint(complaint_id: str, cfg_path: str):
     log_filename = setup_logging()
     log(f"Starting scrape for complaint: {complaint_id}")
@@ -3755,6 +3787,7 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 log(f"[PA-IMG] sum_head={(raw_summary or '')[:200]!r}")
             summary = _normalize_text_preserve(raw_summary)
             summary = _strip_analysis_phrases(summary)
+            summary = _strip_media_provided_sentence(summary)
             if not summary:
                 summary = "(No Analysis Summary found)"
             idx = _match_summary_to_product_index(
