@@ -2640,6 +2640,11 @@ def read_associated_transactions_complete(page, root_frame):
         "investigation": inv,
         "tx_product_map": tx_product_map,
     }
+IMAGE_ONLY_PA_LEAD_TEMPLATE = (
+    "Information provided to Medtronic indicated that the device is not available for evaluation. "
+    "However, a picture for the {product_desc} was provided for evaluation. "
+    "The review of the provided picture is described below."
+)
 def summary_has_product_id(text: str, product_id: str) -> bool:
     if not text or not product_id:
         return False
@@ -3323,25 +3328,44 @@ def _is_image_pa(raw_text: str) -> bool:
 def _clean_image_pa_text(text: str) -> str:
     if not text:
         return text
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(
-        r'^The\s+product\s+sample\s+was\s+not\s+returned\s+to\s+the\s*',
-        '', text, flags=re.IGNORECASE
+        r'^\s*The\s+product\s+sample\s+was\s+not\s+returned\s+to\s+the\s*',
+        '',
+        text,
+        flags=re.IGNORECASE
     ).lstrip()
     text = re.sub(
-        r'\n*^Evaluation\s*:\s*\n(?:\s*[-\u2022].*(?:\n|$))*',
-        '', text, flags=re.IGNORECASE | re.MULTILINE
+        r'(?ims)^\s*Evaluation\s*:\s*\n'
+        r'(?:\s*(?:[-\u2022\u2013*]|\d+[.)])\s*.*(?:\n|$))*',
+        '',
+        text
     )
     text = re.sub(
-        r'^Visual\s+inspection\s*:',
+        r'(?im)^\s*Visual\s+inspection\s*:',
         'Picture Evaluation:',
-        text, flags=re.IGNORECASE
+        text
     )
     text = re.sub(
-        r'\n*A\s+visual\s+inspection\s+of\s+the\s+returned\s+photo\(s\)\s+noted\s*:\s*\n?',
-        '\n', text, flags=re.IGNORECASE
+        r'(?ims)\n*\s*A\s+visual\s+inspection\s+of\s+the\s+returned\s+photo\(s\)\s+noted\s*:\s*\n?',
+        '\n',
+        text
     )
-    text = re.sub(r'^- ', '\u2022 ', text, flags=re.MULTILINE)
-    return text.strip()
+    text = re.sub(
+        r'(?im)\bProduct\s+Analysis\s+laboratory\s*;\s*however,\s*'
+        r'a\s+picture\s*/\s*video\s+was\s+provided\s+by\s+the\s+customer\s+for\s+analysis\.?\s*',
+        '',
+        text
+    )
+    text = re.sub(
+        r'(?im)\bProduct\s+Analysis\s+laboratory\s*;\s*however,\s*'
+        r'a\s+picture\s+was\s+provided\s+by\s+the\s+customer\s+for\s+analysis\.?\s*',
+        '',
+        text
+    )
+    text = re.sub(r'(?m)^\s*-\s+', '\u2022 ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
+    return text
 def get_partners_for_ui(frame):
     tbl = _partners_table(frame)
     if not tbl:
@@ -3866,10 +3890,8 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                 prod_desc = ""
                 if 1 <= idx <= len(products):
                     prod_desc = products[idx - 1].get("desc", "")
-                count_word = _number_word(1)
-                desc = (prod_desc or '').strip()
-                lead = (f"{count_word} {desc} and one picture were received for evaluation. "
-                        f"Examination of the sample and picture is provided below.")
+                desc = (prod_desc or "product").strip()
+                lead = IMAGE_ONLY_PA_LEAD_TEMPLATE.format(product_desc=desc)
                 per_product_pa[idx] = lead + "\n\n" + img_text.strip()
             log(f"[PA-IMAGE] Product {idx}: inserted image PA text into analysis_{idx}")
         for idx, text in per_product_pa.items():
