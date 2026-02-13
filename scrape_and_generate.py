@@ -1996,7 +1996,7 @@ def read_text_by_labels(page, wanted_labels, *, preserve_format=False):
         log("[TextInfo] No 'Text' label found")
     log("[TextInfo] ERROR: All extraction methods failed, returning None")
     return None
-def read_text_by_labels_raw(page, wanted_labels, *, preserve_format=False):
+def read_text_by_labels_raw(page, wanted_labels):
     fr, tbl = _find_latest_analysis_table_nearby(page)
     if not (fr and tbl and tbl.count()):
         return None
@@ -2068,43 +2068,15 @@ def read_text_by_labels_raw(page, wanted_labels, *, preserve_format=False):
     ).first
     if not td.count():
         return None
-    def _ret(s):
-        if s is None:
-            return None
-        s = str(s)
-        if not s.strip():
-            return None
-        return _normalize_text_preserve(s) if preserve_format else _normalize_text(s)
     a = td.locator("xpath=.//a[contains(@id,'text_table') and contains(@id,'lines')]").first
     if a.count():
         full = (a.get_attribute('title') or a.get_attribute('aria-label') or '').strip()
         if full:
-            return _ret(full)
-    txt = _safe_td_text(td, preserve=preserve_format)
-    if txt:
-        return _ret(txt)
-    try:
-        clicked = robust_click(row, fr) or robust_click(td, fr)
-        if clicked:
-            try:
-                fr.locator("css=textarea[id*='text_lines']").first.wait_for(state="attached", timeout=3000)
-            except Exception:
-                pass
-            fr.wait_for_timeout(150)
-
-            detail = _read_detail_textarea_from_frame(
-                fr, preserve_format=preserve_format, timeout_ms=3000
-            )
-            if not detail:
-                detail = _read_textarea_via_label_for(fr, preserve_format=preserve_format)
-            if detail:
-                return _ret(detail)
-    except Exception:
-        pass
+            return full
     try:
         raw = td.evaluate("n => n.textContent || ''") or ""
         if raw.strip():
-            return _ret(raw)
+            return raw.strip()
     except Exception:
         pass
     input_el = td.locator("xpath=.//textarea | .//input").first
@@ -2112,48 +2084,9 @@ def read_text_by_labels_raw(page, wanted_labels, *, preserve_format=False):
         try:
             val = input_el.input_value()
             if val:
-                return _ret(val)
+                return val.strip()
         except Exception:
             pass
-    wysiwyg = td.locator("xpath=.//div[contains(@class,'th-wysi') or contains(@class,'th-txt')]").first
-    if wysiwyg.count():
-        try:
-            raw = wysiwyg.evaluate("n => n.textContent || ''")
-            if raw:
-                return _ret(raw)
-        except Exception:
-            pass
-    try:
-        detail_candidates = fr.locator(
-            "xpath=("
-            "//textarea[contains(@id,'-Text') and (@readonly or @disabled)] | "
-            "//*[@role='textbox' and (not(@contenteditable) or @contenteditable='false')] | "
-            "//div[contains(@class,'th-wysi') or contains(@class,'th-txt')][not(@contenteditable) or @contenteditable='false'] | "
-            "//div[contains(@class,'text-value') or contains(@class,'TextValue')]"
-            ")"
-        )
-        if detail_candidates.count():
-            try:
-                raw = detail_candidates.first.inner_text()
-            except Exception:
-                raw = detail_candidates.first.evaluate("n => n.textContent || ''")
-            if raw:
-                return _ret(raw)
-    except Exception:
-        pass
-    try:
-        lab = fr.locator(
-            "xpath=//*[normalize-space(.)='Text' or contains(normalize-space(.),'Text')]/following::*[1]"
-        ).first
-        if lab.count():
-            try:
-                raw = lab.inner_text()
-            except Exception:
-                raw = lab.evaluate("n => n.textContent || ''")
-            if raw:
-                return _ret(raw)
-    except Exception:
-        pass
     return None
 def read_analysis_raw_text_for_current_pli(page):
     labels = [
@@ -2163,7 +2096,11 @@ def read_analysis_raw_text_for_current_pli(page):
         "Analysis/Investigation conclusion",
         "Analysis/Investigation",
     ]
-    return (read_text_by_labels_raw(page, labels) or "").strip()
+    raw = (read_text_by_labels_raw(page, labels) or "").strip()
+    if raw:
+        return raw
+    robust = (read_text_by_labels(page, labels, preserve_format=True) or "").strip()
+    return robust
 def read_analysis_summary_for_current_pli(page):
     labels = [
         "Analysis Summary",
@@ -3317,18 +3254,34 @@ def _strip_analysis_phrases(text: str) -> str:
     text = re.sub(r'[ \t]{2,}', ' ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
-def _is_image_pa(raw_text: str) -> bool:
-    if not raw_text:
+def _is_image_pa(raw_text: str, summary_text: str = "") -> bool:
+    text = "\n".join([raw_text or "", summary_text or ""])
+    if not text.strip():
         return False
-    return bool(re.search(
-        r'picture\s*/\s*video\s+was\s+provided',
-        raw_text,
-        re.IGNORECASE
+    t = re.sub(r"\s+", " ", text).lower()
+    has_media = bool(re.search(
+        r"\b(picture|photo|image|video|photo\(s\)|picture/video)\b", t, re.I
     ))
+    has_provided = bool(re.search(
+        r"\b(provided|submitted|reviewed|returned)\b", t, re.I
+    ))
+    has_no_sample = bool(re.search(
+        r"\b(product|device|sample)\s+(was\s+)?not\s+(returned|available)\b", t, re.I
+    ))
+    has_visual_photo_phrase = bool(re.search(
+        r"\bvisual inspection\b.*\b(photo|picture|image)\b|\breturned photo\(s\)\b", t, re.I
+    ))
+    return (has_media and (has_provided or has_visual_photo_phrase) and has_no_sample) or \
+           (has_visual_photo_phrase and has_media)
 def _clean_image_pa_text(text: str) -> str:
     if not text:
         return text
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(
+        r'(?im)\bthe\s+product\s+sample\s+was\s+not\s+returned\s+to\s+the\s+product\s+analysis\s+laboratory\s*;?\s*',
+        '',
+        text
+    )
     text = re.sub(
         r'^\s*The\s+product\s+sample\s+was\s+not\s+returned\s+to\s+the\s*',
         '',
@@ -3790,15 +3743,16 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
         pa_ids_raw = values.get("assoc_tx_product_analysis_ids", "") or ", ".join(assoc.get("product_analysis", []))
         pa_ids = [x.strip() for x in pa_ids_raw.split(",") if x.strip()]
         per_product_pa = {}
-        per_product_pa_image = {}  # image-based PAs ("picture/video was provided")
+        per_product_pa_image = {}
         unmatched_pa = []
         for txid in pa_ids:
             log(f"[PA-SUMMARY] Fetching Analysis Summary for PA ID: {txid}")
             raw_summary, prod_code, raw_txt = read_analysis_summary_and_product_for_txid(page, txid)
-            is_image = _is_image_pa(raw_txt)
-            if is_image:
-                log(f"[PA-SUMMARY] txid={txid} detected as IMAGE PA "
-                    f"(truly raw text contains 'picture/video was provided')")
+            is_image = _is_image_pa(raw_txt, raw_summary)
+            log(f"[PA-IMG] txid={txid} is_image={is_image} raw_len={len(raw_txt or '')} summary_len={len(raw_summary or '')}")
+            if not is_image:
+                log(f"[PA-IMG] raw_head={(raw_txt or '')[:200]!r}")
+                log(f"[PA-IMG] sum_head={(raw_summary or '')[:200]!r}")
             summary = _normalize_text_preserve(raw_summary)
             summary = _strip_analysis_phrases(summary)
             if not summary:
@@ -3834,6 +3788,7 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
                     ).strip()
                     log(f"[PA-SUMMARY] txid={txid} stored as IMAGE PA "
                         f"for product index {idx}")
+                    log(f"[PA-IMG] appended image block for product idx={idx}; _pa_image_indices will include it")
                 else:
                     is_first = idx not in per_product_pa
                     formatted = _format_analysis_block(
