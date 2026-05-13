@@ -15,6 +15,33 @@ import html
 from xml.sax.saxutils import escape as _xml_escape
 import logging
 from datetime import datetime
+def resolve_user_data_dir(cfg: dict) -> Path:
+    raw = (cfg.get("user_data_dir") or "").strip()
+    if not raw:
+        raw = r"%LOCALAPPDATA%\CustomerLetterGenerator\gch_browser_profile"
+    path = Path(os.path.expandvars(os.path.expanduser(raw))).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+def launch_gch_context(playwright, cfg: dict):
+    user_data_dir = resolve_user_data_dir(cfg)
+    launch_kwargs = {
+        "headless": bool(cfg.get("headless", False)),
+        "viewport": None,
+        "accept_downloads": True,
+        "args": [
+            "--start-maximized",
+            "--disable-features=IsolateOrigins,site-per-process",
+        ],
+    }
+    browser_channel = (cfg.get("browser_channel") or "").strip()
+    if browser_channel:
+        launch_kwargs["channel"] = browser_channel
+    context = playwright.chromium.launch_persistent_context(
+        user_data_dir=str(user_data_dir),
+        **launch_kwargs,
+    )
+    page = context.pages[0] if context.pages else context.new_page()
+    return context, page
 def setup_logging():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_filename = f"customer_letter_debug_{timestamp}.log"
@@ -3484,16 +3511,8 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
     values = {}
     products = []
     with sync_playwright() as p:
-        user_data_dir = cfg.get("user_data_dir") or get_user_data_dir()
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=user_data_dir,
-            headless=cfg.get("headless", False),
-            channel="chrome",  
-            args=[
-                "--disable-features=IsolateOrigins,site-per-process", 
-            ],
-        )
-        page = context.pages[0] if context.pages else context.new_page()
+        context, page = launch_gch_context(p, cfg)
+        log(f"[browser] Using persistent profile: {resolve_user_data_dir(cfg)}")
         log(f"Navigating to CRM: {cfg['crm_url']}")
         page.goto(cfg['crm_url'], wait_until="load")
         sso_wait = cfg.get('sso_pause_seconds', 0)
