@@ -52,6 +52,15 @@ def _json_default(value):
     if isinstance(value, (datetime.date, datetime.datetime)):
         return value.isoformat()
     return str(value)
+def _safe_filename_part(value: str, fallback: str = "letter") -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._")
+    return safe or fallback
+def _json_default(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return str(value)
 def _write_initial_scrape_audit(out_dir: Path, complaint_id: str, values: dict, products: list) -> Path:
     audit_dir = Path(out_dir or ".") / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
@@ -82,32 +91,62 @@ def _build_initial_docx_path(out_dir: Path, cfg: dict, values: dict, complaint_i
     stem = _safe_filename_part(Path(base_name).stem, "Customer_Letter")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return initial_dir / f"{stem}_initial_{timestamp}.docx"
+def _format_com_error(exc) -> str:
+    hresult = getattr(exc, "hresult", None)
+    message = getattr(exc, "strerror", None) or str(exc)
+    if hresult is not None:
+        return f"{message} (HRESULT: {hresult})"
+    return message
+def _outlook_failure_guidance(error_text: str) -> str:
+    return (
+        f"Outlook desktop could not send the automatic initial email: {error_text}\n\n"
+        "Please open classic Outlook desktop, make sure it is signed in and not showing "
+        "a first-run/profile prompt, then try the scrape again. The new Outlook app does "
+        "not support this desktop COM automation."
+    )
 def _send_initial_letter_with_outlook(docx_path: Path, audit_path: Path, complaint_id: str):
     if not sys.platform.startswith("win"):
         raise RuntimeError("Automatic Outlook desktop email is only available on Windows.")
     if importlib.util.find_spec("win32com.client") is None:
         raise RuntimeError("pywin32 is required to send through the Outlook desktop app.")
+    pythoncom = importlib.import_module("pythoncom")
+    pywintypes = importlib.import_module("pywintypes")
     win32com_client = importlib.import_module("win32com.client")
-    outlook = win32com_client.Dispatch("Outlook.Application")
-    mail = outlook.CreateItem(0)
-    mail.To = INITIAL_AUDIT_RECIPIENT
-    mail.Subject = f"Initial customer letter scrape for {complaint_id}"
-    mail.Body = (
-        "Attached is the initial, unedited customer letter generated immediately "
-        "after the GCH scrape, along with the raw scrape audit JSON.\n\n"
-        f"Complaint/PE number: {complaint_id}\n"
-        f"Initial letter: {docx_path.name}\n"
-        f"Audit file: {audit_path.name}\n"
-    )
-    mail.Attachments.Add(str(docx_path.resolve()))
-    mail.Attachments.Add(str(audit_path.resolve()))
-    mail.Send()
+    pythoncom.CoInitialize()
+    try:
+        try:
+            outlook = win32com_client.GetActiveObject("Outlook.Application")
+        except pywintypes.com_error:
+            outlook = win32com_client.Dispatch("Outlook.Application")
+        namespace = outlook.GetNamespace("MAPI")
+        namespace.Logon("", "", False, False)
+        mail = outlook.CreateItem(0)
+        mail.To = INITIAL_AUDIT_RECIPIENT
+        mail.Subject = f"Initial customer letter scrape for {complaint_id}"
+        mail.Body = (
+            "Attached is the initial, unedited customer letter generated immediately "
+            "after the GCH scrape, along with the raw scrape audit JSON.\n\n"
+            f"Complaint/PE number: {complaint_id}\n"
+            f"Initial letter: {docx_path.name}\n"
+            f"Audit file: {audit_path.name}\n"
+        )
+        mail.Attachments.Add(str(docx_path.resolve()))
+        mail.Attachments.Add(str(audit_path.resolve()))
+        mail.Send()
+    except pywintypes.com_error as exc:
+        raise RuntimeError(_outlook_failure_guidance(_format_com_error(exc))) from exc
+    finally:
+        pythoncom.CoUninitialize()
 def _archive_and_email_initial_scrape(template_path: Path, out_dir: Path, cfg: dict, values: dict, products: list, complaint_id: str):
     audit_path = _write_initial_scrape_audit(out_dir, complaint_id, values, products)
     initial_docx_path = _build_initial_docx_path(out_dir, cfg, values, complaint_id)
     fill_docx(str(template_path), str(initial_docx_path), values, products)
-    _send_initial_letter_with_outlook(initial_docx_path, audit_path, complaint_id)
-    return audit_path, initial_docx_path
+    email_error = None
+    try:
+        _send_initial_letter_with_outlook(initial_docx_path, audit_path, complaint_id)
+    except Exception as exc:
+        email_error = str(exc)
+    return audit_path, initial_docx_path, email_error
 def extract_country_from_address(address: str) -> str:
     if not address:
         return "USA"
@@ -358,7 +397,7 @@ class CustomerLetterApp(tk.Tk):
         self.status_var.set("Generating and emailing initial unedited letter…")
         self.update_idletasks()
         try:
-            audit_path, initial_docx_path = _archive_and_email_initial_scrape(
+            audit_path, initial_docx_path, email_error = _archive_and_email_initial_scrape(
                 template_path,
                 out_dir,
                 cfg,
@@ -370,8 +409,8 @@ class CustomerLetterApp(tk.Tk):
             self.status_var.set("")
             messagebox.showerror(
                 "Initial audit/email failed",
-                "The scrape succeeded, but the app could not store and email the "
-                f"initial unedited letter:\n{e}",
+                "The scrape succeeded, but the app could not store the raw audit "
+                f"data or generate the initial unedited letter:\n{e}",
             )
             return
         self.values = raw_values
@@ -380,6 +419,17 @@ class CustomerLetterApp(tk.Tk):
         self.template_path = template_path
         self.out_dir = out_dir
         self.last_saved_path = None
+        self.initial_audit_path = audit_path
+        self.initial_docx_path = initial_docx_path
+        if email_error:
+            messagebox.showwarning(
+                "Initial email not sent",
+                "The raw scrape audit and initial unedited letter were saved, "
+                "but Outlook could not send the automatic email.\n\n"
+                f"Audit: {audit_path}\n"
+                f"Letter: {initial_docx_path}\n\n"
+                f"Details: {email_error}",
+            )
         self.initial_audit_path = audit_path
         self.initial_docx_path = initial_docx_path
         ir_block = self.values.get("ir_with_address", "") or ""
