@@ -1,4 +1,3 @@
-
 crm_url: "https://crm.medtronic.com/sap(bD1lbiZjPTAxMCZkPW1pbg==)/bc/bsp/sap/crm_ui_start/default.htm?"
 headless: false              # give yourself time to login/SSO if needed
 header_frame_name_regex: "HeaderFrame"

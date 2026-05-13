@@ -1,3 +1,4 @@
+#ui_app.py
 import os
 import datetime
 import sys
@@ -184,8 +185,8 @@ class CustomerLetterApp(tk.Tk):
         self.columnconfigure(0, weight=1)
         self.step1_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)
         self.step2_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)
-        self.step3_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)  # Analyses per product
-        self.step4_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)  # Investigations per product + save
+        self.step3_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20) 
+        self.step4_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20) 
         self._build_step1()
         self._build_step2()
         self._build_step3_analysis()
@@ -229,7 +230,7 @@ class CustomerLetterApp(tk.Tk):
             debug_info = self._collect_debug_info()
             self.clipboard_clear()
             self.clipboard_append(debug_info)
-            self.update()  # Ensure clipboard is updated
+            self.update() 
             messagebox.showinfo(
                 "Debug Info Copied", 
                 "Debug information has been copied to clipboard.\n\n"
