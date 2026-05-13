@@ -258,6 +258,46 @@ def build_ir_address_block(ir_name: str, facility_name: str, facility_address: s
     if country.strip():
         parts.append(country.strip())
     return "\n".join(parts)
+def _run_one_time_gch_edge_profile_repair():
+    if not sys.platform.startswith("win"):
+        return
+    repair_id = "gch_edge_profile_reset_2026_05_12"
+    app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home())
+    repair_dir = app_data / "CustomerLetterGenerator" / "repairs"
+    marker_path = repair_dir / f"{repair_id}.done"
+    profile_dir = app_data / "CustomerLetterGenerator" / "gch_browser_profile"
+    if marker_path.exists():
+        return
+    try:
+        repair_dir.mkdir(parents=True, exist_ok=True)
+        run_kwargs = {
+            "capture_output": True,
+            "text": True,
+            "timeout": 15,
+            "check": False,
+        }
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "msedge.exe"],
+            **run_kwargs,
+        )
+        if profile_dir.exists():
+            shutil.rmtree(profile_dir, ignore_errors=True)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(
+            "Completed one-time GCH Edge profile reset.\n",
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        try:
+            repair_dir.mkdir(parents=True, exist_ok=True)
+            (repair_dir / f"{repair_id}.failed.txt").write_text(
+                str(exc),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 class CustomerLetterApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -943,5 +983,6 @@ class CustomerLetterApp(tk.Tk):
         self.main_frame.grid_columnconfigure(0, weight=1)
         self.step_label.config(text=step_text)
 if __name__ == "__main__":
+    _run_one_time_gch_edge_profile_repair()
     app = CustomerLetterApp()
     app.mainloop()
