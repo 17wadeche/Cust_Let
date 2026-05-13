@@ -2,6 +2,10 @@
 import os
 import datetime
 import sys
+import json
+import copy
+import importlib
+import importlib.util
 from pathlib import Path
 def _set_playwright_paths():
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -33,11 +37,77 @@ from tkinter import ttk, filedialog, messagebox
 from scrape_and_generate import scrape_complaint, fill_docx
 import re
 DEFAULT_CONFIG_PATH = Path("config.yaml")
+INITIAL_AUDIT_RECIPIENT = "chey.wade@medtronic.com"
 BG_LIGHT = "#f3f4f6"
 CARD_BG = "#ffffff"
 TEXT_DARK = "#111827"
 TEXT_MUTED = "#6b7280"
 ACCENT = "#2563eb"
+def _safe_filename_part(value: str, fallback: str = "letter") -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._")
+    return safe or fallback
+def _json_default(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return str(value)
+def _write_initial_scrape_audit(out_dir: Path, complaint_id: str, values: dict, products: list) -> Path:
+    audit_dir = Path(out_dir or ".") / "audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    complaint_part = _safe_filename_part(complaint_id, "complaint")
+    audit_path = audit_dir / f"initial_scrape_{complaint_part}_{timestamp}.json"
+    payload = {
+        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "complaint_id": complaint_id,
+        "values": values or {},
+        "products": products or [],
+    }
+    audit_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False, default=_json_default),
+        encoding="utf-8",
+    )
+    return audit_path
+def _build_initial_docx_path(out_dir: Path, cfg: dict, values: dict, complaint_id: str) -> Path:
+    initial_dir = Path(out_dir or ".") / "initial_letters"
+    initial_dir.mkdir(parents=True, exist_ok=True)
+    pattern = (cfg or {}).get("output_name_pattern", "Customer_Letter_{complaint_id}.docx")
+    try:
+        base_name = pattern.format(**(values or {}))
+    except Exception:
+        base_name = f"Customer_Letter_{complaint_id}.docx"
+    if not base_name.lower().endswith(".docx"):
+        base_name = f"{base_name}.docx"
+    stem = _safe_filename_part(Path(base_name).stem, "Customer_Letter")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return initial_dir / f"{stem}_initial_{timestamp}.docx"
+def _send_initial_letter_with_outlook(docx_path: Path, audit_path: Path, complaint_id: str):
+    if not sys.platform.startswith("win"):
+        raise RuntimeError("Automatic Outlook desktop email is only available on Windows.")
+    if importlib.util.find_spec("win32com.client") is None:
+        raise RuntimeError("pywin32 is required to send through the Outlook desktop app.")
+    win32com_client = importlib.import_module("win32com.client")
+    outlook = win32com_client.Dispatch("Outlook.Application")
+    mail = outlook.CreateItem(0)
+    mail.To = INITIAL_AUDIT_RECIPIENT
+    mail.Subject = f"Initial customer letter scrape for {complaint_id}"
+    mail.Body = (
+        "Attached is the initial, unedited customer letter generated immediately "
+        "after the GCH scrape, along with the raw scrape audit JSON.\n\n"
+        f"Complaint/PE number: {complaint_id}\n"
+        f"Initial letter: {docx_path.name}\n"
+        f"Audit file: {audit_path.name}\n"
+    )
+    mail.Attachments.Add(str(docx_path.resolve()))
+    mail.Attachments.Add(str(audit_path.resolve()))
+    mail.Send()
+def _archive_and_email_initial_scrape(template_path: Path, out_dir: Path, cfg: dict, values: dict, products: list, complaint_id: str):
+    audit_path = _write_initial_scrape_audit(out_dir, complaint_id, values, products)
+    initial_docx_path = _build_initial_docx_path(out_dir, cfg, values, complaint_id)
+    fill_docx(str(template_path), str(initial_docx_path), values, products)
+    _send_initial_letter_with_outlook(initial_docx_path, audit_path, complaint_id)
+    return audit_path, initial_docx_path
 def extract_country_from_address(address: str) -> str:
     if not address:
         return "USA"
@@ -160,6 +230,8 @@ class CustomerLetterApp(tk.Tk):
         self.template_path = None
         self.out_dir = None
         self.last_saved_path = None
+        self.initial_audit_path = None
+        self.initial_docx_path = None
         self.current_analysis_idx = 0        # 0-based
         self.current_investigation_idx = 0   # 0-based
         self.complaint_var = tk.StringVar()
@@ -281,12 +353,35 @@ class CustomerLetterApp(tk.Tk):
             self.status_var.set("")
             messagebox.showerror("Error", f"Failed to scrape data from GCH:\n{e}")
             return
-        self.values = values or {}
-        self.products = products or []
+        raw_values = copy.deepcopy(values or {})
+        raw_products = copy.deepcopy(products or [])
+        self.status_var.set("Generating and emailing initial unedited letter…")
+        self.update_idletasks()
+        try:
+            audit_path, initial_docx_path = _archive_and_email_initial_scrape(
+                template_path,
+                out_dir,
+                cfg,
+                raw_values,
+                raw_products,
+                complaint_id,
+            )
+        except Exception as e:
+            self.status_var.set("")
+            messagebox.showerror(
+                "Initial audit/email failed",
+                "The scrape succeeded, but the app could not store and email the "
+                f"initial unedited letter:\n{e}",
+            )
+            return
+        self.values = raw_values
+        self.products = raw_products
         self.cfg = cfg
         self.template_path = template_path
         self.out_dir = out_dir
         self.last_saved_path = None
+        self.initial_audit_path = audit_path
+        self.initial_docx_path = initial_docx_path
         ir_block = self.values.get("ir_with_address", "") or ""
         parsed = parse_ir_address_block(ir_block)
         ir_name_from_values = (self.values.get("ir_name") or "").strip()
@@ -707,6 +802,8 @@ class CustomerLetterApp(tk.Tk):
         self.template_path = None
         self.out_dir = None
         self.last_saved_path = None
+        self.initial_audit_path = None
+        self.initial_docx_path = None
         self.current_analysis_idx = 0
         self.current_investigation_idx = 0
         self.complaint_var.set("")
