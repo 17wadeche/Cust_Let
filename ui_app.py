@@ -6,6 +6,8 @@ import json
 import copy
 import importlib
 import importlib.util
+import shutil
+import time
 from pathlib import Path
 def _set_playwright_paths():
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -43,15 +45,6 @@ CARD_BG = "#ffffff"
 TEXT_DARK = "#111827"
 TEXT_MUTED = "#6b7280"
 ACCENT = "#2563eb"
-def _safe_filename_part(value: str, fallback: str = "letter") -> str:
-    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._")
-    return safe or fallback
-def _json_default(value):
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, (datetime.date, datetime.datetime)):
-        return value.isoformat()
-    return str(value)
 def _safe_filename_part(value: str, fallback: str = "letter") -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._")
     return safe or fallback
@@ -100,10 +93,76 @@ def _format_com_error(exc) -> str:
 def _outlook_failure_guidance(error_text: str) -> str:
     return (
         f"Outlook desktop could not send the automatic initial email: {error_text}\n\n"
-        "Please open classic Outlook desktop, make sure it is signed in and not showing "
-        "a first-run/profile prompt, then try the scrape again. The new Outlook app does "
-        "not support this desktop COM automation."
+        "The app tried to connect to an already-running classic Outlook instance, "
+        "launch classic Outlook if needed, and connect again. Please confirm classic "
+        "Outlook desktop is installed, signed in, and not showing a first-run/profile "
+        "prompt. If you see a 'New Outlook' toggle, turn it off because new Outlook "
+        "does not support this desktop COM automation. Also make sure this app and "
+        "Outlook are running at the same privilege level (normally, neither should be "
+        "run as Administrator)."
     )
+def _classic_outlook_executable_candidates():
+    seen = set()
+    office_roots = [
+        os.environ.get("ProgramFiles"),
+        os.environ.get("ProgramFiles(x86)"),
+    ]
+    office_versions = ["Office16", "Office15", "Office14", "Office13", "Office12"]
+    for root in office_roots:
+        if not root:
+            continue
+        for version in office_versions:
+            for rel in (
+                Path("Microsoft Office") / "root" / version / "OUTLOOK.EXE",
+                Path("Microsoft Office") / version / "OUTLOOK.EXE",
+            ):
+                candidate = Path(root) / rel
+                key = str(candidate).lower()
+                if key not in seen:
+                    seen.add(key)
+                    yield candidate
+    which_outlook = shutil.which("outlook.exe") or shutil.which("OUTLOOK.EXE")
+    if which_outlook:
+        candidate = Path(which_outlook)
+        key = str(candidate).lower()
+        if key not in seen:
+            yield candidate
+def _start_classic_outlook():
+    for candidate in _classic_outlook_executable_candidates():
+        if candidate.exists():
+            subprocess.Popen([str(candidate), "/recycle"])
+            return candidate
+    subprocess.Popen(["outlook.exe", "/recycle"])
+    return Path("outlook.exe")
+def _get_outlook_application(win32com_client, pywintypes):
+    errors = []
+    for label, factory in (
+        ("active Outlook", lambda: win32com_client.GetActiveObject("Outlook.Application")),
+        ("created Outlook COM instance", lambda: win32com_client.Dispatch("Outlook.Application")),
+    ):
+        try:
+            return factory()
+        except pywintypes.com_error as exc:
+            errors.append(f"{label}: {_format_com_error(exc)}")
+    try:
+        launched = _start_classic_outlook()
+        errors.append(f"launched classic Outlook from: {launched}")
+    except Exception as exc:
+        errors.append(f"launch classic Outlook: {exc}")
+    deadline = time.monotonic() + 45
+    last_error = "Outlook did not register an active COM instance before the timeout."
+    while time.monotonic() < deadline:
+        time.sleep(3)
+        try:
+            return win32com_client.GetActiveObject("Outlook.Application")
+        except pywintypes.com_error as exc:
+            last_error = _format_com_error(exc)
+    errors.append(f"active Outlook after launch wait: {last_error}")
+    try:
+        return win32com_client.Dispatch("Outlook.Application")
+    except pywintypes.com_error as exc:
+        errors.append(f"final Outlook COM instance: {_format_com_error(exc)}")
+        raise RuntimeError(_outlook_failure_guidance("; ".join(errors))) from exc
 def _send_initial_letter_with_outlook(docx_path: Path, audit_path: Path, complaint_id: str):
     if not sys.platform.startswith("win"):
         raise RuntimeError("Automatic Outlook desktop email is only available on Windows.")
@@ -114,10 +173,7 @@ def _send_initial_letter_with_outlook(docx_path: Path, audit_path: Path, complai
     win32com_client = importlib.import_module("win32com.client")
     pythoncom.CoInitialize()
     try:
-        try:
-            outlook = win32com_client.GetActiveObject("Outlook.Application")
-        except pywintypes.com_error:
-            outlook = win32com_client.Dispatch("Outlook.Application")
+        outlook = _get_outlook_application(win32com_client, pywintypes)
         namespace = outlook.GetNamespace("MAPI")
         namespace.Logon("", "", False, False)
         mail = outlook.CreateItem(0)
@@ -408,7 +464,7 @@ class CustomerLetterApp(tk.Tk):
         except Exception as e:
             self.status_var.set("")
             messagebox.showerror(
-                "Initial audit/email failed",
+                "Initial audit failed",
                 "The scrape succeeded, but the app could not store the raw audit "
                 f"data or generate the initial unedited letter:\n{e}",
             )
@@ -430,8 +486,6 @@ class CustomerLetterApp(tk.Tk):
                 f"Letter: {initial_docx_path}\n\n"
                 f"Details: {email_error}",
             )
-        self.initial_audit_path = audit_path
-        self.initial_docx_path = initial_docx_path
         ir_block = self.values.get("ir_with_address", "") or ""
         parsed = parse_ir_address_block(ir_block)
         ir_name_from_values = (self.values.get("ir_name") or "").strip()
