@@ -259,37 +259,85 @@ def build_ir_address_block(ir_name: str, facility_name: str, facility_address: s
         parts.append(country.strip())
     return "\n".join(parts)
 def _run_one_time_gch_edge_profile_repair():
+    """
+    Fully built-in one-time repair for users upgrading from older builds.
+
+    This replaces the manual PowerShell steps:
+        taskkill /F /IM msedge.exe
+        taskkill /F /IM msedgewebview2.exe
+        Remove-Item "$env:LOCALAPPDATA\CustomerLetterGenerator\gch_browser_profile" -Recurse -Force
+        Remove-Item "$env:LOCALAPPDATA\CustomerLetterGenerator\gch_browser_profile_chromium" -Recurse -Force
+
+    It runs only once per Windows user for this repair id. Do not run this on
+    every startup or users would lose their saved GCH/SSO browser session.
+    """
     if not sys.platform.startswith("win"):
         return
-    repair_id = "gch_edge_profile_reset_2026_05_12"
+
+    repair_id = "gch_edge_cdp_profile_reset_2026_05_12"
     app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home())
-    repair_dir = app_data / "CustomerLetterGenerator" / "repairs"
+    app_dir = app_data / "CustomerLetterGenerator"
+    repair_dir = app_dir / "repairs"
     marker_path = repair_dir / f"{repair_id}.done"
-    profile_dir = app_data / "CustomerLetterGenerator" / "gch_browser_profile"
+
     if marker_path.exists():
         return
+
+    profile_dirs = [
+        app_dir / "gch_browser_profile",
+        app_dir / "gch_browser_profile_chromium",
+    ]
+
     try:
         repair_dir.mkdir(parents=True, exist_ok=True)
+
         run_kwargs = {
             "capture_output": True,
             "text": True,
-            "timeout": 15,
+            "timeout": 20,
             "check": False,
         }
         if hasattr(subprocess, "CREATE_NO_WINDOW"):
             run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "msedge.exe"],
-            **run_kwargs,
-        )
-        if profile_dir.exists():
-            shutil.rmtree(profile_dir, ignore_errors=True)
-        profile_dir.mkdir(parents=True, exist_ok=True)
+
+        # Close browser processes that can lock the automation profiles.
+        for exe_name in ("msedge.exe", "msedgewebview2.exe", "chrome.exe"):
+            try:
+                subprocess.run(["taskkill", "/F", "/IM", exe_name], **run_kwargs)
+            except Exception:
+                pass
+
+        time.sleep(1)
+
+        # Remove old/bad automation profiles, including the old Chromium fallback profile.
+        for profile_dir in profile_dirs:
+            try:
+                if profile_dir.exists():
+                    shutil.rmtree(profile_dir, ignore_errors=True)
+
+                # If anything remains locked, rename it aside and continue with a clean path.
+                if profile_dir.exists() and any(profile_dir.iterdir()):
+                    backup = profile_dir.with_name(
+                        profile_dir.name + "_bad_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    )
+                    try:
+                        profile_dir.rename(backup)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # Recreate the main Edge profile folder so Playwright/Edge has a clean writable path.
+        (app_dir / "gch_browser_profile").mkdir(parents=True, exist_ok=True)
+
         marker_path.write_text(
-            "Completed one-time GCH Edge profile reset.\n",
+            "Completed built-in one-time GCH Edge/Chromium profile reset.\n",
             encoding="utf-8",
         )
+
     except Exception as exc:
+        # Do not block the whole app from opening. The scrape path has its own
+        # automatic repair/retry if Edge fails later.
         try:
             repair_dir.mkdir(parents=True, exist_ok=True)
             (repair_dir / f"{repair_id}.failed.txt").write_text(
@@ -298,6 +346,8 @@ def _run_one_time_gch_edge_profile_repair():
             )
         except Exception:
             pass
+
+
 class CustomerLetterApp(tk.Tk):
     def __init__(self):
         super().__init__()

@@ -9,6 +9,10 @@ from docx import Document
 from docx.oxml import parse_xml
 from datetime import datetime
 import os
+import shutil
+import subprocess
+import socket
+import urllib.request
 from docx.table import _Cell, Table
 from docx.oxml.ns import qn
 import html
@@ -22,26 +26,276 @@ def resolve_user_data_dir(cfg: dict) -> Path:
     path = Path(os.path.expandvars(os.path.expanduser(raw))).resolve()
     path.mkdir(parents=True, exist_ok=True)
     return path
-def launch_gch_context(playwright, cfg: dict):
-    user_data_dir = resolve_user_data_dir(cfg)
+
+
+def _kill_browser_processes_for_profile_repair():
+    """
+    Fully built-in equivalent of:
+        taskkill /F /IM msedge.exe
+        taskkill /F /IM msedgewebview2.exe
+        taskkill /F /IM chrome.exe
+    """
+    if not sys.platform.startswith("win"):
+        return
+
+    run_kwargs = {
+        "capture_output": True,
+        "text": True,
+        "timeout": 20,
+        "check": False,
+    }
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+    for exe_name in ("msedge.exe", "msedgewebview2.exe", "chrome.exe"):
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", exe_name], **run_kwargs)
+            try:
+                log(f"[browser-repair] Closed process if running: {exe_name}")
+            except Exception:
+                pass
+        except Exception as exc:
+            try:
+                log(f"[browser-repair] taskkill {exe_name} failed: {exc}")
+            except Exception:
+                pass
+
+
+def _remove_profile_dir(profile_dir: Path):
+    """
+    Fully built-in equivalent of:
+        Remove-Item "<profile_dir>" -Recurse -Force
+
+    If Windows still has files locked, rename the profile aside and continue with
+    a clean directory path.
+    """
+    try:
+        if profile_dir.exists():
+            shutil.rmtree(profile_dir, ignore_errors=True)
+
+        if profile_dir.exists() and any(profile_dir.iterdir()):
+            backup = profile_dir.with_name(
+                profile_dir.name + "_bad_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+            )
+            try:
+                profile_dir.rename(backup)
+                log(f"[browser-repair] Renamed locked/damaged profile to: {backup}")
+            except Exception as exc:
+                log(f"[browser-repair] Could not rename damaged profile {profile_dir}: {exc}")
+
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        log(f"[browser-repair] Clean profile ready: {profile_dir}")
+
+    except Exception as exc:
+        log(f"[browser-repair] Failed to clean profile {profile_dir}: {exc}")
+        raise
+
+
+def _reset_browser_profiles(main_profile_dir: Path):
+    """
+    Fully built-in repair for both the Edge profile and the old Chromium fallback
+    profile. Users should not need to run any PowerShell commands manually.
+    """
+    _kill_browser_processes_for_profile_repair()
+    time.sleep(1)
+
+    app_dir = main_profile_dir.parent
+    profile_dirs = [
+        main_profile_dir,
+        app_dir / "gch_browser_profile_chromium",
+    ]
+
+    for profile_dir in profile_dirs:
+        _remove_profile_dir(profile_dir)
+
+
+def _edge_executable_candidates():
+    paths = [
+        Path(os.environ.get("ProgramFiles(x86)", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        Path(os.environ.get("ProgramFiles", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+    ]
+
+    seen = set()
+    for p in paths:
+        if not str(p):
+            continue
+        key = str(p).lower()
+        if key not in seen:
+            seen.add(key)
+            if p.exists():
+                yield p
+
+    found = shutil.which("msedge.exe") or shutil.which("msedge")
+    if found:
+        p = Path(found)
+        key = str(p).lower()
+        if key not in seen and p.exists():
+            yield p
+
+
+def _find_edge_executable() -> Path:
+    for p in _edge_executable_candidates():
+        return p
+    raise RuntimeError("Could not find Microsoft Edge executable (msedge.exe).")
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _wait_for_cdp(port: int, timeout_seconds: int = 30):
+    url = f"http://127.0.0.1:{port}/json/version"
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2) as resp:
+                if resp.status == 200:
+                    return
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.5)
+
+    raise RuntimeError(f"Timed out waiting for Edge CDP endpoint on port {port}: {last_error}")
+
+
+class _CdpBrowserContext:
+    """
+    Tiny wrapper so the rest of the scraper can keep calling context.close().
+    """
+    def __init__(self, browser, context, process=None):
+        self._browser = browser
+        self._context = context
+        self._process = process
+
+    def __getattr__(self, name):
+        return getattr(self._context, name)
+
+    def close(self):
+        try:
+            self._browser.close()
+        finally:
+            # Browser.close should close the Edge instance started with this profile.
+            # This is just a safety net.
+            if self._process and self._process.poll() is None:
+                try:
+                    self._process.terminate()
+                except Exception:
+                    pass
+
+
+def _launch_edge_over_cdp(playwright, cfg: dict, profile_dir: Path):
+    """
+    Launch normal Microsoft Edge ourselves, then connect Playwright to it over CDP.
+
+    This avoids Playwright's launch_persistent_context Edge startup path, which can
+    immediately exit on some corporate builds. It also avoids falling back to
+    Chromium, which can trigger Microsoft/Medtronic MFA verification trouble.
+    """
+    edge_exe = _find_edge_executable()
+    port = int(cfg.get("edge_debugging_port") or 0) or _find_free_port()
+
+    args = [
+        str(edge_exe),
+        f"--remote-debugging-port={port}",
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--new-window",
+        "about:blank",
+    ]
+
+    log(f"[browser] Starting Edge over CDP: {edge_exe}")
+    log(f"[browser] Edge CDP profile: {profile_dir}")
+    log(f"[browser] Edge CDP port: {port}")
+
+    popen_kwargs = {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+    proc = subprocess.Popen(args, **popen_kwargs)
+    _wait_for_cdp(port, timeout_seconds=45)
+
+    browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+    context = browser.contexts[0] if browser.contexts else browser.new_context()
+    wrapped_context = _CdpBrowserContext(browser, context, proc)
+    page = context.pages[0] if context.pages else context.new_page()
+    return wrapped_context, page
+
+
+def _new_launch_kwargs(cfg: dict, include_channel: bool = True) -> dict:
     launch_kwargs = {
         "headless": bool(cfg.get("headless", False)),
         "viewport": None,
         "accept_downloads": True,
         "args": [
             "--start-maximized",
-            "--disable-features=IsolateOrigins,site-per-process",
         ],
     }
+
     browser_channel = (cfg.get("browser_channel") or "").strip()
-    if browser_channel:
+    if include_channel and browser_channel:
         launch_kwargs["channel"] = browser_channel
-    context = playwright.chromium.launch_persistent_context(
-        user_data_dir=str(user_data_dir),
+
+    return launch_kwargs
+
+
+def _launch_persistent_context(playwright, profile_dir: Path, launch_kwargs: dict):
+    return playwright.chromium.launch_persistent_context(
+        user_data_dir=str(profile_dir),
         **launch_kwargs,
     )
+
+
+def launch_gch_context(playwright, cfg: dict):
+    """
+    Launch GCH with Microsoft Edge.
+
+    Primary path:
+      - For browser_channel: msedge, start normal Edge and connect over CDP.
+        This is more compatible with corporate Edge/SSO than Playwright's direct
+        launch_persistent_context path.
+
+    Backup path:
+      - If CDP startup fails, reset the Edge automation profile and retry CDP once.
+      - Do not fall back to Chromium, because Chromium can trigger Microsoft MFA
+        verification problems for Medtronic/GCH.
+    """
+    user_data_dir = resolve_user_data_dir(cfg)
+    browser_channel = (cfg.get("browser_channel") or "").strip().lower()
+
+    if browser_channel in {"msedge", "edge"}:
+        try:
+            return _launch_edge_over_cdp(playwright, cfg, user_data_dir)
+        except Exception as first_error:
+            log(f"[browser] Edge CDP launch failed: {first_error}")
+            log("[browser] Resetting GCH Edge profile and retrying Edge CDP once.")
+            _reset_browser_profiles(user_data_dir)
+
+            try:
+                return _launch_edge_over_cdp(playwright, cfg, user_data_dir)
+            except Exception as second_error:
+                log(f"[browser] Edge CDP launch after reset failed: {second_error}")
+                raise RuntimeError(
+                    "Microsoft Edge could not be opened for GCH automation. The app already "
+                    "closed Edge/WebView2, reset the GCH Edge profile, removed the old Chromium "
+                    "fallback profile, and retried automatically.\n\n"
+                    "The app did not fall back to Chromium because Chromium can trigger "
+                    "Microsoft/Medtronic MFA verification problems.\n\n"
+                    "Please reopen the app and try again. If this repeats, Edge may be blocked "
+                    "from remote debugging by a corporate policy on this computer."
+                ) from second_error
+
+    # Non-Edge path for development only.
+    launch_kwargs = _new_launch_kwargs(cfg, include_channel=True)
+    context = _launch_persistent_context(playwright, user_data_dir, launch_kwargs)
     page = context.pages[0] if context.pages else context.new_page()
     return context, page
+
+
 def setup_logging():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_filename = f"customer_letter_debug_{timestamp}.log"
