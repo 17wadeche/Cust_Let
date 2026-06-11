@@ -326,6 +326,7 @@ def get_user_data_dir(app_name="CustomerLetterGenerator"):
     d = Path(base) / app_name / "chrome-profile"
     d.mkdir(parents=True, exist_ok=True)
     return str(d)
+
 def _xml_convert_newlines_to_br(xml: str) -> str:
     def repl(m):
         open_tag, text, close_tag = m.group(1), m.group(2), m.group(3)
