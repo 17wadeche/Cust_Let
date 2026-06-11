@@ -4292,7 +4292,7 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             values[k] = _strip_leading_based_on_evidence(body)
         log("Collected fields:")
         log(json.dumps(values, indent=2))    
-        context.close()
+        log("GCH automation complete; leaving the browser window open for the user.")
     return values, products, cfg, template_path, out_dir
 def main():
     if len(sys.argv) < 3:

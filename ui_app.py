@@ -490,6 +490,26 @@ class CustomerLetterApp(tk.Tk):
             self.after(100, lambda: self.attributes('-topmost', False))
         except Exception:
             pass
+    def _show_timed_notification(self, message: str, duration_ms: int = 5000):
+        notification = tk.Toplevel(self)
+        notification.overrideredirect(True)
+        notification.attributes("-topmost", True)
+        notification.configure(bg=ACCENT)
+        label = tk.Label(
+            notification,
+            text=message,
+            font=("Segoe UI", 11, "bold"),
+            fg="#ffffff",
+            bg=ACCENT,
+            padx=24,
+            pady=14,
+        )
+        label.pack()
+        notification.update_idletasks()
+        x = self.winfo_rootx() + self.winfo_width() - notification.winfo_width() - 30
+        y = self.winfo_rooty() + 30
+        notification.geometry(f"+{max(0, x)}+{max(0, y)}")
+        notification.after(duration_ms, notification.destroy)
     def on_go_clicked(self):
         complaint_id = self.complaint_var.get().strip()
         if not complaint_id:
@@ -566,8 +586,9 @@ class CustomerLetterApp(tk.Tk):
         self.country_entry.delete(0, tk.END)
         self.country_entry.insert(0, parsed["country"])
         self.status_var.set("")
-        self._bring_to_front()
         self._show_step(self.step2_frame, "Step 2 of 4 · Edit Initial Reporter / Address")
+        self._bring_to_front()
+        self._show_timed_notification("Letter generated. Ready for editing")
     def _build_step2(self):
         f = self.step2_frame
         ttk.Label(f, text="Initial Reporter & Facility Address", style="CardTitle.TLabel").grid(
