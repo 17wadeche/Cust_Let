@@ -45,6 +45,36 @@ CARD_BG = "#ffffff"
 TEXT_DARK = "#111827"
 TEXT_MUTED = "#6b7280"
 ACCENT = "#2563eb"
+EVENT_DESCRIPTION_LETTER_PREFIX_BASE = (
+    "Thank you for informing Medtronic of your experience with the above "
+    "referenced product"
+)
+EVENT_DESCRIPTION_LETTER_PREFIX_END = (
+    ". The information we received stated "
+)
+EVENT_DESCRIPTION_LETTER_SUFFIX = (
+    " We, as a manufacturer, strive for excellence in constantly improving our "
+    "products and the service we provide. Customer feedback is very important "
+    "to our goal of manufacturing and distributing high quality products."
+)
+def _event_product_suffix(products: list | None) -> str:
+    return "s" if len(products or []) != 1 else ""
+def _format_event_description_for_editor(description: str, products: list | None) -> str:
+    product_suffix = _event_product_suffix(products)
+    return (
+        f"{EVENT_DESCRIPTION_LETTER_PREFIX_BASE}{product_suffix}"
+        f"{EVENT_DESCRIPTION_LETTER_PREFIX_END}{description or ''}"
+        f"{EVENT_DESCRIPTION_LETTER_SUFFIX}"
+    )
+def _extract_event_description_from_editor(editor_text: str, products: list | None) -> str:
+    text = editor_text or ""
+    prefix = (
+        f"{EVENT_DESCRIPTION_LETTER_PREFIX_BASE}{_event_product_suffix(products)}"
+        f"{EVENT_DESCRIPTION_LETTER_PREFIX_END}"
+    )
+    if text.startswith(prefix) and text.endswith(EVENT_DESCRIPTION_LETTER_SUFFIX):
+        return text[len(prefix) : -len(EVENT_DESCRIPTION_LETTER_SUFFIX)]
+    return text
 def _safe_filename_part(value: str, fallback: str = "letter") -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._")
     return safe or fallback
@@ -667,7 +697,13 @@ class CustomerLetterApp(tk.Tk):
             ir_name, facility_name, facility_address, country
         )
         self.event_description_text.delete("1.0", "end")
-        self.event_description_text.insert("1.0", self.values.get("event_description", "") or "")
+        self.event_description_text.insert(
+            "1.0",
+            _format_event_description_for_editor(
+                self.values.get("event_description", "") or "",
+                self.products,
+            ),
+        )
         self._show_step(
             self.step3_frame, "Step 3 of 5 · Edit Event Description"
         )
@@ -697,7 +733,10 @@ class CustomerLetterApp(tk.Tk):
         f.grid_rowconfigure(2, weight=1)
         f.grid_columnconfigure(0, weight=1)
     def on_event_next(self):
-        self.values["event_description"] = self.event_description_text.get("1.0", "end-1c")
+        self.values["event_description"] = _extract_event_description_from_editor(
+            self.event_description_text.get("1.0", "end-1c"),
+            self.products,
+        )
         if not self.products:
             self._show_step(
                 self.step5_frame,
