@@ -221,14 +221,20 @@ class _CdpBrowserContext:
         self._context = context
         self._process = process
         self._input_lock = input_lock
+        self._input_released = False
     def __getattr__(self, name):
         return getattr(self._context, name)
+    def release_input(self):
+        if self._input_released:
+            return
+        if self._input_lock:
+            self._input_lock.stop()
+        else:
+            _set_process_windows_enabled(self._process, True)
+        self._input_released = True
     def close(self):
         try:
-            if self._input_lock:
-                self._input_lock.stop()
-            else:
-                _set_process_windows_enabled(self._process, True)
+            self.release_input()
             self._browser.close()
         finally:
             if self._process and self._process.poll() is None:
@@ -4342,7 +4348,11 @@ def scrape_complaint(complaint_id: str, cfg_path: str):
             body = _extract_investigation_body(v)
             values[k] = _strip_leading_based_on_evidence(body)
         log("Collected fields:")
-        log(json.dumps(values, indent=2))    
+        log(json.dumps(values, indent=2))
+        release_input = getattr(context, "release_input", None)
+        if callable(release_input):
+            release_input()
+            log("[browser] Edge window input re-enabled for user editing.")
         log("GCH automation complete; leaving the browser window open for the user.")
     return values, products, cfg, template_path, out_dir
 def main():
