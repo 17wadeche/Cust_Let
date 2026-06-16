@@ -45,6 +45,9 @@ CARD_BG = "#ffffff"
 TEXT_DARK = "#111827"
 TEXT_MUTED = "#6b7280"
 ACCENT = "#2563eb"
+ACCENT_DARK = "#1d4ed8"
+BORDER = "#d1d5db"
+INPUT_BG = "#f9fafb"
 EVENT_DESCRIPTION_LETTER_PREFIX_BASE = (
     "Thank you for informing Medtronic of your experience with the above "
     "referenced product"
@@ -406,7 +409,7 @@ class CustomerLetterApp(tk.Tk):
             padding=6,
             borderwidth=0,
         )
-        style.map("Accent.TButton", background=[("active", "#1d4ed8")])
+        style.map("Accent.TButton", background=[("active", ACCENT_DARK)])
         style.configure(
             "Ghost.TButton",
             font=("Avenir Next LT Pro", 10),
@@ -415,7 +418,51 @@ class CustomerLetterApp(tk.Tk):
             padding=6,
             borderwidth=0,
         )
-        style.map("Ghost.TButton", background=[("active", "#d1d5db")])
+        style.map("Ghost.TButton", background=[("active", BORDER)])
+        style.configure(
+            "Signature.TFrame",
+            background=INPUT_BG,
+            relief="solid",
+            borderwidth=1,
+            padding=12,
+        )
+        style.configure(
+            "SignatureTitle.TLabel",
+            font=("Avenir Next LT Pro", 10, "bold"),
+            foreground=TEXT_DARK,
+            background=INPUT_BG,
+        )
+        style.configure(
+            "SignatureHelp.TLabel",
+            font=("Avenir Next LT Pro", 9),
+            foreground=TEXT_MUTED,
+            background=INPUT_BG,
+        )
+        style.configure(
+            "Signature.TCombobox",
+            arrowsize=16,
+            bordercolor=BORDER,
+            darkcolor=BORDER,
+            lightcolor=BORDER,
+            fieldbackground="#ffffff",
+            foreground=TEXT_DARK,
+            padding=(10, 6),
+            relief="flat",
+            selectbackground="#ffffff",
+            selectforeground=TEXT_DARK,
+        )
+        style.map(
+            "Signature.TCombobox",
+            bordercolor=[("focus", ACCENT), ("hover", ACCENT), ("!focus", BORDER)],
+            fieldbackground=[("readonly", "#ffffff")],
+            selectbackground=[("readonly", "#ffffff")],
+            selectforeground=[("readonly", TEXT_DARK)],
+        )
+        self.option_add("*TCombobox*Listbox.font", ("Avenir Next LT Pro", 10))
+        self.option_add("*TCombobox*Listbox.background", "#ffffff")
+        self.option_add("*TCombobox*Listbox.foreground", TEXT_DARK)
+        self.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+        self.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
         self.values = {}
         self.products = []
         self.cfg = None
@@ -892,22 +939,28 @@ class CustomerLetterApp(tk.Tk):
             font=("Avenir Next LT Pro", 10),
         )
         self.inv_pp_text_widget.grid(row=2, column=0, sticky="nsew", pady=(5, 10))
-        signature_frame = ttk.Frame(f, style="Card.TFrame")
-        signature_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
-        signature_frame.columnconfigure(1, weight=1)
+        signature_frame = ttk.Frame(f, style="Signature.TFrame")
+        signature_frame.grid(row=3, column=0, sticky="ew", pady=(0, 14))
+        signature_frame.columnconfigure(0, weight=1)
         ttk.Label(
             signature_frame,
-            text="Signature Manager:",
-            style="CardText.TLabel",
-        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
+            text="Signature manager",
+            style="SignatureTitle.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            signature_frame,
+            text="Choose the manager name and title that will appear in the final letter signature block.",
+            style="SignatureHelp.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 8))
         self.signature_manager_combo = ttk.Combobox(
             signature_frame,
             textvariable=self.signature_manager_var,
             values=SIGNATURE_MANAGER_LABELS,
             state="readonly",
+            style="Signature.TCombobox",
             width=45,
         )
-        self.signature_manager_combo.grid(row=0, column=1, sticky="ew")
+        self.signature_manager_combo.grid(row=2, column=0, sticky="ew")
         self.saved_link_label = ttk.Label(
             f,
             text="",
