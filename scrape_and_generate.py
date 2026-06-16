@@ -1,5 +1,5 @@
 #scrape_and_generate.py
-import re, sys, time, json
+import re, sys, time, json, threading
 from pathlib import Path
 from datetime import date
 import yaml
@@ -119,6 +119,56 @@ def _wait_for_cdp(port: int, timeout_seconds: int = 30):
             last_error = exc
             time.sleep(0.5)
     raise RuntimeError(f"Timed out waiting for Edge CDP endpoint on port {port}: {last_error}")
+def _collect_child_process_ids(parent_pid: int) -> set[int]:
+    if not sys.platform.startswith("win"):
+        return {parent_pid}
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        TH32CS_SNAPPROCESS = 0x00000002
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+        class PROCESSENTRY32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.POINTER(wintypes.ULONG)),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", ctypes.c_char * 260),
+            ]
+        snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if snapshot == INVALID_HANDLE_VALUE:
+            return {parent_pid}
+        try:
+            entry = PROCESSENTRY32()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+            children_by_parent = {}
+            if not kernel32.Process32First(snapshot, ctypes.byref(entry)):
+                return {parent_pid}
+            while True:
+                pid = int(entry.th32ProcessID)
+                ppid = int(entry.th32ParentProcessID)
+                children_by_parent.setdefault(ppid, set()).add(pid)
+                if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                    break
+        finally:
+            kernel32.CloseHandle(snapshot)
+        all_pids = {parent_pid}
+        pending = [parent_pid]
+        while pending:
+            current = pending.pop()
+            for child_pid in children_by_parent.get(current, set()):
+                if child_pid not in all_pids:
+                    all_pids.add(child_pid)
+                    pending.append(child_pid)
+        return all_pids
+    except Exception:
+        return {parent_pid}
 def _set_process_windows_enabled(process, enabled: bool):
     if not sys.platform.startswith("win") or process is None:
         return
@@ -126,13 +176,13 @@ def _set_process_windows_enabled(process, enabled: bool):
         import ctypes
         from ctypes import wintypes
         user32 = ctypes.windll.user32
-        target_pid = int(process.pid)
+        target_pids = _collect_child_process_ids(int(process.pid))
         windows = []
         EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
         def callback(hwnd, _lparam):
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if pid.value == target_pid and user32.IsWindowVisible(hwnd):
+            if int(pid.value) in target_pids and user32.IsWindowVisible(hwnd):
                 windows.append(hwnd)
             return True
         user32.EnumWindows(EnumWindowsProc(callback), 0)
@@ -143,16 +193,42 @@ def _set_process_windows_enabled(process, enabled: bool):
             log(f"[browser] Could not {'enable' if enabled else 'disable'} Edge window input: {exc}")
         except Exception:
             pass
+class _BrowserInputLock:
+    def __init__(self, process, interval_seconds: float = 0.75):
+        self._process = process
+        self._interval_seconds = interval_seconds
+        self._stop_event = threading.Event()
+        self._thread = None
+    def start(self):
+        if not sys.platform.startswith("win") or self._process is None:
+            return
+        _set_process_windows_enabled(self._process, False)
+        self._thread = threading.Thread(target=self._run, name="EdgeInputLock", daemon=True)
+        self._thread.start()
+    def _run(self):
+        while not self._stop_event.wait(self._interval_seconds):
+            if self._process.poll() is not None:
+                return
+            _set_process_windows_enabled(self._process, False)
+    def stop(self):
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+        _set_process_windows_enabled(self._process, True)
 class _CdpBrowserContext:
-    def __init__(self, browser, context, process=None):
+    def __init__(self, browser, context, process=None, input_lock=None):
         self._browser = browser
         self._context = context
         self._process = process
+        self._input_lock = input_lock
     def __getattr__(self, name):
         return getattr(self._context, name)
     def close(self):
         try:
-            _set_process_windows_enabled(self._process, True)
+            if self._input_lock:
+                self._input_lock.stop()
+            else:
+                _set_process_windows_enabled(self._process, True)
             self._browser.close()
         finally:
             if self._process and self._process.poll() is None:
@@ -180,15 +256,19 @@ def _launch_edge_over_cdp(playwright, cfg: dict, profile_dir: Path):
     proc = subprocess.Popen(args, **popen_kwargs)
     try:
         _wait_for_cdp(port, timeout_seconds=45)
-        _set_process_windows_enabled(proc, False)
+        input_lock = _BrowserInputLock(proc)
+        input_lock.start()
         log("[browser] Edge window input disabled until scraping completes.")
         browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
         context = browser.contexts[0] if browser.contexts else browser.new_context()
-        wrapped_context = _CdpBrowserContext(browser, context, proc)
+        wrapped_context = _CdpBrowserContext(browser, context, proc, input_lock)
         page = context.pages[0] if context.pages else context.new_page()
         return wrapped_context, page
     except Exception:
-        _set_process_windows_enabled(proc, True)
+        try:
+            input_lock.stop()
+        except UnboundLocalError:
+            _set_process_windows_enabled(proc, True)
         if proc.poll() is None:
             try:
                 proc.terminate()
