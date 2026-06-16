@@ -336,32 +336,32 @@ class CustomerLetterApp(tk.Tk):
         )
         style.configure(
             "Title.TLabel",
-            font=("Segoe UI", 18, "bold"),
+            font=("Avenir Next LT Pro", 18, "bold"),
             foreground=TEXT_DARK,
             background=BG_LIGHT,
         )
         style.configure(
             "Step.TLabel",
-            font=("Segoe UI", 10, "bold"),
+            font=("Avenir Next LT Pro", 10, "bold"),
             foreground=TEXT_MUTED,
             background=BG_LIGHT,
         )
         style.configure(
             "CardTitle.TLabel",
-            font=("Segoe UI", 14, "bold"),
+            font=("Avenir Next LT Pro", 14, "bold"),
             foreground=TEXT_DARK,
             background=CARD_BG,
         )
         style.configure(
             "CardText.TLabel",
-            font=("Segoe UI", 10),
+            font=("Avenir Next LT Pro", 10),
             foreground=TEXT_MUTED,
             background=CARD_BG,
             wraplength=700,
         )
         style.configure(
             "Accent.TButton",
-            font=("Segoe UI", 10, "bold"),
+            font=("Avenir Next LT Pro", 10, "bold"),
             foreground="#ffffff",
             background=ACCENT,
             padding=6,
@@ -370,7 +370,7 @@ class CustomerLetterApp(tk.Tk):
         style.map("Accent.TButton", background=[("active", "#1d4ed8")])
         style.configure(
             "Ghost.TButton",
-            font=("Segoe UI", 10),
+            font=("Avenir Next LT Pro", 10),
             foreground=TEXT_DARK,
             background="#e5e7eb",
             padding=6,
@@ -400,7 +400,7 @@ class CustomerLetterApp(tk.Tk):
         self.title_label.grid(row=0, column=0, sticky="w")
         self.step_label = ttk.Label(
             header,
-            text="Step 1 of 4 · Enter GCH PE Number",
+            text="Step 1 of 5 · Enter GCH PE Number",
             style="Step.TLabel",
         )
         self.step_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -410,13 +410,15 @@ class CustomerLetterApp(tk.Tk):
         self.columnconfigure(0, weight=1)
         self.step1_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)
         self.step2_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)
-        self.step3_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20) 
-        self.step4_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20) 
+        self.step3_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)
+        self.step4_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)
+        self.step5_frame = ttk.Frame(self.main_frame, style="Card.TFrame", padding=20)
         self._build_step1()
         self._build_step2()
-        self._build_step3_analysis()
-        self._build_step4_investigation_per_product()
-        self._show_step(self.step1_frame, "Step 1 of 4 · Enter GCH PE Number")
+        self._build_step3_event_description()
+        self._build_step4_analysis()
+        self._build_step5_investigation_per_product()
+        self._show_step(self.step1_frame, "Step 1 of 5 · Enter GCH PE Number")
     def _collect_debug_info(self):
         from datetime import datetime
         import json
@@ -498,7 +500,7 @@ class CustomerLetterApp(tk.Tk):
         label = tk.Label(
             notification,
             text=message,
-            font=("Segoe UI", 11, "bold"),
+            font=("Avenir Next LT Pro", 11, "bold"),
             fg="#ffffff",
             bg=ACCENT,
             padx=24,
@@ -586,7 +588,7 @@ class CustomerLetterApp(tk.Tk):
         self.country_entry.delete(0, tk.END)
         self.country_entry.insert(0, parsed["country"])
         self.status_var.set("")
-        self._show_step(self.step2_frame, "Step 2 of 4 · Edit Initial Reporter / Address")
+        self._show_step(self.step2_frame, "Step 2 of 5 · Edit Initial Reporter / Address")
         self._bring_to_front()
         self._show_timed_notification("Letter generated. Ready for editing")
     def _build_step2(self):
@@ -622,6 +624,7 @@ class CustomerLetterApp(tk.Tk):
             insertbackground=TEXT_DARK,
             relief="solid",
             borderwidth=1,
+            font=("Avenir Next LT Pro", 10),
         )
         self.facility_address_text.grid(row=4, column=1, sticky="ew", pady=(0, 5), padx=(10, 0))
         ttk.Label(f, text="Country:", style="CardText.TLabel").grid(
@@ -643,13 +646,13 @@ class CustomerLetterApp(tk.Tk):
             text="← Back",
             style="Ghost.TButton",
             command=lambda: self._show_step(
-                self.step1_frame, "Step 1 of 4 · Enter GCH PE Number"
+                self.step1_frame, "Step 1 of 5 · Enter GCH PE Number"
             ),
         )
         back_btn.grid(row=0, column=0, padx=5)
         next_btn = ttk.Button(
             btn_frame,
-            text="Next · Analyses →",
+            text="Next · Event Description →",
             style="Accent.TButton",
             command=self.on_ir_next,
         )
@@ -663,19 +666,51 @@ class CustomerLetterApp(tk.Tk):
         self.values["ir_with_address"] = build_ir_address_block(
             ir_name, facility_name, facility_address, country
         )
+        self.event_description_text.delete("1.0", "end")
+        self.event_description_text.insert("1.0", self.values.get("event_description", "") or "")
+        self._show_step(
+            self.step3_frame, "Step 3 of 5 · Edit Event Description"
+        )
+    def _build_step3_event_description(self):
+        f = self.step3_frame
+        ttk.Label(f, text="Event Description", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            f,
+            text="Review and adjust the event description before continuing to product analysis.",
+            style="CardText.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 10))
+        self.event_description_text = tk.Text(
+            f, width=100, height=12, wrap="word", bg="#ffffff", fg=TEXT_DARK,
+            insertbackground=TEXT_DARK, relief="solid", borderwidth=1,
+            font=("Avenir Next LT Pro", 10),
+        )
+        self.event_description_text.grid(row=2, column=0, sticky="nsew", pady=(5, 10))
+        btn_frame = ttk.Frame(f, style="Card.TFrame")
+        btn_frame.grid(row=3, column=0, sticky="e")
+        ttk.Button(
+            btn_frame, text="← Back", style="Ghost.TButton",
+            command=lambda: self._show_step(self.step2_frame, "Step 2 of 5 · Edit Initial Reporter / Address"),
+        ).grid(row=0, column=0, padx=5)
+        ttk.Button(
+            btn_frame, text="Next · Analyses →", style="Accent.TButton", command=self.on_event_next
+        ).grid(row=0, column=1, padx=5)
+        f.grid_rowconfigure(2, weight=1)
+        f.grid_columnconfigure(0, weight=1)
+    def on_event_next(self):
+        self.values["event_description"] = self.event_description_text.get("1.0", "end-1c")
         if not self.products:
             self._show_step(
-                self.step4_frame,
-                "Step 3 of 4 · Edit Investigations (per product) & Save",
+                self.step5_frame,
+                "Step 5 of 5 · Edit Investigations (per product) & Save",
             )
             return
         self.current_analysis_idx = 0
         self._load_current_analysis()
         self._show_step(
-            self.step3_frame, "Step 3 of 4 · Edit Analyses (per product)"
+            self.step4_frame, "Step 4 of 5 · Edit Analyses (per product)"
         )
-    def _build_step3_analysis(self):
-        f = self.step3_frame
+    def _build_step4_analysis(self):
+        f = self.step4_frame
         self.analysis_header_label = ttk.Label(f, text="Product Analysis", style="CardTitle.TLabel")
         self.analysis_header_label.grid(row=0, column=0, sticky="w")
         self.analysis_product_label = ttk.Label(
@@ -694,6 +729,7 @@ class CustomerLetterApp(tk.Tk):
             insertbackground=TEXT_DARK,
             relief="solid",
             borderwidth=1,
+            font=("Avenir Next LT Pro", 10),
         )
         self.analysis_text_widget.grid(row=2, column=0, sticky="nsew", pady=(5, 10))
         btn_frame = ttk.Frame(f, style="Card.TFrame")
@@ -749,40 +785,40 @@ class CustomerLetterApp(tk.Tk):
             self._save_current_analysis()
         if not self.products:
             self._show_step(
-                self.step4_frame,
-                "Step 3 of 4 · Edit Investigations (per product) & Save",
+                self.step5_frame,
+                "Step 5 of 5 · Edit Investigations (per product) & Save",
             )
             return
         if self.current_analysis_idx >= len(self.products) - 1:
             self.current_investigation_idx = 0
             self._load_current_investigation()
             self._show_step(
-                self.step4_frame,
-                "Step 4 of 4 · Edit Investigations (per product) & Save",
+                self.step5_frame,
+                "Step 5 of 5 · Edit Investigations (per product) & Save",
             )
         else:
             self.current_analysis_idx += 1
             self._load_current_analysis()
             self._show_step(
-                self.step3_frame,
-                "Step 3 of 4 · Edit Analyses (per product)",
+                self.step4_frame,
+                "Step 4 of 5 · Edit Analyses (per product)",
             )
     def on_analysis_back(self):
         if not self.products:
-            self._show_step(self.step2_frame, "Step 2 of 4 · Edit Initial Reporter / Address")
+            self._show_step(self.step3_frame, "Step 3 of 5 · Edit Event Description")
             return
         self._save_current_analysis()
         if self.current_analysis_idx == 0:
-            self._show_step(self.step2_frame, "Step 2 of 4 · Edit Initial Reporter / Address")
+            self._show_step(self.step3_frame, "Step 3 of 5 · Edit Event Description")
         else:
             self.current_analysis_idx -= 1
             self._load_current_analysis()
             self._show_step(
-                self.step3_frame,
-                "Step 3 of 4 · Edit Analyses (per product)",
+                self.step4_frame,
+                "Step 4 of 5 · Edit Analyses (per product)",
             )
-    def _build_step4_investigation_per_product(self):
-        f = self.step4_frame
+    def _build_step5_investigation_per_product(self):
+        f = self.step5_frame
         self.inv_pp_header_label = ttk.Label(
             f, text="Product Investigation", style="CardTitle.TLabel"
         )
@@ -803,6 +839,7 @@ class CustomerLetterApp(tk.Tk):
             insertbackground=TEXT_DARK,
             relief="solid",
             borderwidth=1,
+            font=("Avenir Next LT Pro", 10),
         )
         self.inv_pp_text_widget.grid(row=2, column=0, sticky="nsew", pady=(5, 10))
         self.saved_link_label = ttk.Label(
@@ -893,14 +930,14 @@ class CustomerLetterApp(tk.Tk):
             self.current_investigation_idx += 1
             self._load_current_investigation()
             self._show_step(
-                self.step4_frame,
-                "Step 4 of 4 · Edit Investigations (per product) & Save",
+                self.step5_frame,
+                "Step 5 of 5 · Edit Investigations (per product) & Save",
             )
     def on_inv_pp_back(self):
         if not self.products:
             self._show_step(
-                self.step2_frame,
-                "Step 2 of 4 · Edit Initial Reporter / Address",
+                self.step3_frame,
+                "Step 3 of 5 · Edit Event Description",
             )
             return
         self._save_current_investigation()
@@ -908,15 +945,15 @@ class CustomerLetterApp(tk.Tk):
             self.current_analysis_idx = max(0, len(self.products) - 1)
             self._load_current_analysis()
             self._show_step(
-                self.step3_frame,
-                "Step 3 of 4 · Edit Analyses (per product)",
+                self.step4_frame,
+                "Step 4 of 5 · Edit Analyses (per product)",
             )
         else:
             self.current_investigation_idx -= 1
             self._load_current_investigation()
             self._show_step(
-                self.step4_frame,
-                "Step 4 of 4 · Edit Investigations (per product) & Save",
+                self.step5_frame,
+                "Step 5 of 5 · Edit Investigations (per product) & Save",
             )
     def _update_combined_analysis_results(self):
         if not self.products:
@@ -995,6 +1032,7 @@ class CustomerLetterApp(tk.Tk):
         self.facility_name_entry.delete(0, tk.END)
         self.facility_address_text.delete("1.0", "end")
         self.country_entry.delete(0, tk.END)
+        self.event_description_text.delete("1.0", "end")
         self.analysis_text_widget.config(state="normal")
         self.analysis_text_widget.delete("1.0", "end")
         self.inv_pp_text_widget.config(state="normal")
@@ -1003,7 +1041,7 @@ class CustomerLetterApp(tk.Tk):
         self.inv_pp_open_btn.config(state="disabled")
         self.inv_pp_restart_btn.config(state="disabled")
         self.inv_pp_next_btn.config(state="normal")
-        self._show_step(self.step1_frame, "Step 1 of 4 · Enter GCH PE Number")
+        self._show_step(self.step1_frame, "Step 1 of 5 · Enter GCH PE Number")
     def _open_file(self, path: str):
         try:
             if sys.platform.startswith("win"):
@@ -1015,7 +1053,7 @@ class CustomerLetterApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file:\n{e}")
     def _show_step(self, frame_to_show: ttk.Frame, step_text: str):
-        for f in (self.step1_frame, self.step2_frame, self.step3_frame, self.step4_frame):
+        for f in (self.step1_frame, self.step2_frame, self.step3_frame, self.step4_frame, self.step5_frame):
             f.grid_forget()
         frame_to_show.grid(row=0, column=0, sticky="nsew")
         self.main_frame.grid_rowconfigure(0, weight=1)
