@@ -57,6 +57,15 @@ EVENT_DESCRIPTION_LETTER_SUFFIX = (
     "products and the service we provide. Customer feedback is very important "
     "to our goal of manufacturing and distributing high quality products."
 )
+SIGNATURE_MANAGER_OPTIONS = (
+    {"name": "Tracy Landers", "title": "Sr MDR/Vigilance Manager"},
+    {"name": "Clay Chandler", "title": "MDR/Vigilance Manager"},
+    {"name": "Amy Beeman", "title": "MDR/Vigilance Manager"},
+)
+SIGNATURE_MANAGER_LABELS = tuple(
+    f"{manager['name']} — {manager['title']}"
+    for manager in SIGNATURE_MANAGER_OPTIONS
+)
 def _event_product_suffix(products: list | None) -> str:
     return "s" if len(products or []) != 1 else ""
 def _format_event_description_for_editor(description: str, products: list | None) -> str:
@@ -419,6 +428,7 @@ class CustomerLetterApp(tk.Tk):
         self.current_investigation_idx = 0   # 0-based
         self.complaint_var = tk.StringVar()
         self.status_var = tk.StringVar()
+        self.signature_manager_var = tk.StringVar(value=SIGNATURE_MANAGER_LABELS[0])
         header = ttk.Frame(self, style="Main.TFrame", padding=(20, 15, 20, 5))
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
@@ -558,6 +568,7 @@ class CustomerLetterApp(tk.Tk):
             self.status_var.set("")
             messagebox.showerror("Error", f"Failed to scrape data from GCH:\n{e}")
             return
+        self.signature_manager_var.set(SIGNATURE_MANAGER_LABELS[0])
         raw_values = copy.deepcopy(values or {})
         raw_products = copy.deepcopy(products or [])
         self.status_var.set("Generating and emailing initial unedited letter…")
@@ -881,17 +892,33 @@ class CustomerLetterApp(tk.Tk):
             font=("Avenir Next LT Pro", 10),
         )
         self.inv_pp_text_widget.grid(row=2, column=0, sticky="nsew", pady=(5, 10))
+        signature_frame = ttk.Frame(f, style="Card.TFrame")
+        signature_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        signature_frame.columnconfigure(1, weight=1)
+        ttk.Label(
+            signature_frame,
+            text="Signature Manager:",
+            style="CardText.TLabel",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.signature_manager_combo = ttk.Combobox(
+            signature_frame,
+            textvariable=self.signature_manager_var,
+            values=SIGNATURE_MANAGER_LABELS,
+            state="readonly",
+            width=45,
+        )
+        self.signature_manager_combo.grid(row=0, column=1, sticky="ew")
         self.saved_link_label = ttk.Label(
             f,
             text="",
             style="CardText.TLabel",
             foreground="#1d4ed8",
         )
-        self.saved_link_label.grid(row=3, column=0, sticky="w", pady=(0, 5))
+        self.saved_link_label.grid(row=4, column=0, sticky="w", pady=(0, 5))
         self.saved_link_label.bind("<Button-1>", self._on_saved_link_click)
         self.saved_link_label.configure(cursor="hand2")
         btn_frame = ttk.Frame(f, style="Card.TFrame")
-        btn_frame.grid(row=4, column=0, sticky="e")
+        btn_frame.grid(row=5, column=0, sticky="e")
         self.inv_pp_open_btn = ttk.Button(
             btn_frame,
             text="Open Letter",
@@ -1014,7 +1041,18 @@ class CustomerLetterApp(tk.Tk):
                 blocks.append(txt)
         if blocks:
             self.values["investigation_summary"] = "\n\n\n".join(blocks)
+    def _apply_selected_signature_manager(self):
+        selected_label = self.signature_manager_var.get()
+        selected_manager = SIGNATURE_MANAGER_OPTIONS[0]
+        for manager in SIGNATURE_MANAGER_OPTIONS:
+            label = f"{manager['name']} — {manager['title']}"
+            if label == selected_label or manager["name"] == selected_label:
+                selected_manager = manager
+                break
+        self.values["signature_manager_name"] = selected_manager["name"]
+        self.values["signature_manager_title"] = selected_manager["title"]
     def on_save_clicked(self):
+        self._apply_selected_signature_manager()
         self._update_combined_analysis_results()
         self._update_combined_investigation_results()
         if not self.template_path:
@@ -1067,6 +1105,7 @@ class CustomerLetterApp(tk.Tk):
         self.current_investigation_idx = 0
         self.complaint_var.set("")
         self.status_var.set("")
+        self.signature_manager_var.set(SIGNATURE_MANAGER_LABELS[0])
         self.ir_name_entry.delete(0, tk.END)
         self.facility_name_entry.delete(0, tk.END)
         self.facility_address_text.delete("1.0", "end")

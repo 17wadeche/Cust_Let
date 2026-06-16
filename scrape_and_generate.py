@@ -602,6 +602,8 @@ import re
 from docx import Document
 def _norm_key(s: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', (s or '').strip().lower()).strip('_')
+DEFAULT_SIGNATURE_MANAGER_NAME = 'Tracy Landers'
+DEFAULT_SIGNATURE_MANAGER_TITLE = 'Sr MDR/Vigilance Manager'
 def _build_alias_mapping(mapping: dict) -> dict:
     out = {}
     for k, v in mapping.items():
@@ -625,6 +627,8 @@ def _build_alias_mapping(mapping: dict) -> dict:
         'event_description': out.get('event_description', ''),
         'analysis_results_if_present': out.get('analysis_results', ''),
         'investigation_summary': out.get('investigation_summary', ''),
+        'signature_manager_name': out.get('signature_manager_name') or DEFAULT_SIGNATURE_MANAGER_NAME,
+        'signature_manager_title': out.get('signature_manager_title') or DEFAULT_SIGNATURE_MANAGER_TITLE,
         'product_id': out.get('product_id_1', ''),
         'product_desc': out.get('product_desc_1', ''),
         'lot_serial_number': out.get('serial_or_lot_1', ''),
@@ -847,11 +851,47 @@ def _apply_output_font(doc: Document, font_name: str = DOCX_OUTPUT_FONT):
                     for nested_row in nested.rows:
                         for nested_cell in nested_row.cells:
                             apply_paragraphs(nested_cell.paragraphs)
+def _iter_document_paragraphs(doc: Document):
+    for paragraph in doc.paragraphs:
+        yield paragraph
+    for section in doc.sections:
+        for paragraph in section.header.paragraphs:
+            yield paragraph
+        for paragraph in section.footer.paragraphs:
+            yield paragraph
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    yield paragraph
+                for nested in cell.tables:
+                    for nested_row in nested.rows:
+                        for nested_cell in nested_row.cells:
+                            for paragraph in nested_cell.paragraphs:
+                                yield paragraph
+def _replace_static_signature_block(doc: Document, mapping: dict):
+    resolved = _build_alias_mapping(mapping)
+    signature_name = resolved.get('signature_manager_name') or DEFAULT_SIGNATURE_MANAGER_NAME
+    signature_title = resolved.get('signature_manager_title') or DEFAULT_SIGNATURE_MANAGER_TITLE
+    def set_paragraph_text(paragraph, text):
+        if paragraph.runs:
+            paragraph.runs[0].text = text
+            for run in paragraph.runs[1:]:
+                run.text = ''
+        else:
+            paragraph.add_run(text)
+    for paragraph in _iter_document_paragraphs(doc):
+        text = (paragraph.text or '').strip()
+        if text == DEFAULT_SIGNATURE_MANAGER_NAME:
+            set_paragraph_text(paragraph, signature_name)
+        elif text.startswith(DEFAULT_SIGNATURE_MANAGER_TITLE) and 'Customer Quality' in text:
+            set_paragraph_text(paragraph, f'{signature_title} | Customer Quality')
 def fill_docx(template_path, out_path, mapping, products=None):
     doc = Document(template_path)
     if products is not None:
         _ensure_second_table_product_blocks(doc, len(products))
     replace_everywhere(doc, mapping)
+    _replace_static_signature_block(doc, mapping)
     buf = BytesIO()
     doc.save(buf)
     buf.seek(0)
