@@ -6,4 +6,3 @@ venv/
 *.zip
 *.pyc
 out/
-installer/
